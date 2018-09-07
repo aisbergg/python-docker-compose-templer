@@ -256,94 +256,119 @@ class Log(object):
         sys.stderr.write(msg + "\n")
 
 
-class ContextCreator(object):
-    """Represents a context creator
+class ContextChainElement(object):
 
-    Args:
-        variables (dict): Variables passed via 'vars'
-        variable_files (list): YAML files to be used as context files
+    def __init__(self, source, prev=None):
+        self.prev = prev
+        self.next = None
+        self.source = source
+        if type(source) == File:
+            self.source.add_on_change_callback(self.execute_on_change)
 
-    """
-
-    def __init__(self):
-        self.sources = []
         self.jr = JinjaRenderer()
         self.cache = None
 
-    def add(self, context, source_file_path):
-        if context:
-            self.sources.append({'path': source_file_path, 'data': context})
-            self.cache = None
-
-    def add_files(self, files, relative_path):
-        for f in files:
-            if not os.path.isabs(f):
-                self.sources.append(File(os.path.join(os.path.dirname(relative_path), f)))
-                self.cache = None
-
     def get_context(self):
-        """Get the context
-
-        Returns:
-            dict: The contextn
-
-        """
         if self.cache:
             return self.cache
         else:
-            context = dict()
-            for src in self.sources:
-                if type(src) == File:
-                    file_content = src.read()
-                    try:
-                        context = self.jr.render_dict_and_add_to_context(
-                            Utils.load_yaml(file_content),
-                            context
-                        )
-                    except Exception as e:
-                        raise Exception(Utils.format_error(
-                            "Error loading variables from file",
-                            description=str(e),
-                            path=src.path
-                        ))
-                elif type(src) == dict:
-                    try:
-                        context = self.jr.render_dict_and_add_to_context(
-                            src['data'],
-                            context
-                        )
-                    except Exception as e:
-                        raise Exception(Utils.format_error(
-                            "Error loading variables",
-                            description=str(e),
-                            file_path=src['path']
-                        ))
-            self.cache = context
-            return context
+            parent_context = self.prev.get_context() if self.prev else dict()
+            if type(self.source) == ContextFile:
+                file_content = self.source.read()
+                try:
+                    self.cache = self.jr.render_dict_and_add_to_context(
+                        Utils.load_yaml(file_content),
+                        parent_context
+                    )
+                except Exception as e:
+                    raise Exception(Utils.format_error(
+                        "Error loading variables from file",
+                        description=str(e),
+                        path=self.source.path
+                    ))
+            elif type(self.source) == dict:
+                try:
+                    self.cache = self.jr.render_dict_and_add_to_context(
+                        self.source['data'],
+                        parent_context
+                    )
+                except Exception as e:
+                    raise Exception(Utils.format_error(
+                        "Error loading variables",
+                        description=str(e),
+                        file_path=self.source['path']
+                    ))
+                
+
+            return self.cache
+
+    def invalidate_cache(self):
+        self.cache = None
+
+    def execute_on_change(self):
+        raise NotImplementedError()
+
+
+class ContextChain(object):
+
+    def __init__(self):
+        self.chain_elements = []
+
+    def add_context(self, context, origin_path):
+        if context:
+            tail = self.chain_elements[-1] if self.chain_elements else None
+            elm = ContextChainElement(
+                source={'path': origin_path, 'data': context},
+                prev=tail
+            )
+            self.chain_elements.append(elm)
+            if tail:
+                tail.next = elm
+
+    def add_files(self, files, relative_path):
+        for path in files:
+            if not os.path.isabs(path):
+                path = os.path.join(relative_path, path)
+            tail = self.chain_elements[-1] if self.chain_elements else None
+            elm = ContextChainElement(
+                source=ContextFile(path),
+                prev=tail
+            )
+            self.chain_elements.append(elm)
+            if tail:
+                tail.next = elm
+
+    def get_context(self):
+        return self.chain_elements[-1].get_context()
 
 
 class File(object):
     def __init__(self, path):
         self.path = path
+        self.on_change_callbacks = []
+
+    def get_path(self):
+        return self.path
 
     def exists(self):
-        return os.path.exists(self.path)
+        return os.path.exists(self.get_path())
 
     def read(self):
+        path = self.get_path()
         if not self.exists():
             raise IOError(Utils.format_error(
                 "Error reading file",
                 description="File does not exist",
-                path=self.path
+                path=path
             ))
-        if not os.path.isfile(self.path):
+        if not os.path.isfile(path):
             raise IOError(Utils.format_error(
                 "Error reading file",
                 description="Is not a file",
-                path=self.path
+                path=path
             ))
-        Log.debug("Loading file '{0}'...".format(self.path))
-        with io.open(self.path, 'r', encoding='utf8') as f:
+        Log.debug("Loading file '{0}'...".format(path))
+        with io.open(path, 'r', encoding='utf8') as f:
             file_content = f.read()
 
         return file_content
@@ -381,55 +406,58 @@ class File(object):
         with io.open(path, 'w', encoding='utf8') as f:
             f.write(content)
 
+    def add_on_change_callback(self, callback):
+        self.on_change_callbacks.append(callback)
 
-class DefinitionLoader(object):
+    def execute_on_change(self):
+        for a in self.on_change_callbacks:
+            a()
+
+
+class ContextFile(File):
+
+    def __init__(self, path):
+        super().__init__(path)
+
+
+class DefinitionFile(File):
 
     def __init__(self, path, force_overwrite=True):
-        self.definition_file = File(path)
+        super().__init__(path)
         self.force_overwrite = force_overwrite
 
+        self.jr = JinjaRenderer()
         self.templates = []
 
     def parse(self):
         self.templates = []
 
-        file_content = self.definition_file.read()
+        file_content = self.read()
         try:
             file_content = Utils.load_yaml(file_content)
         except Exception as e:
             raise Exception(Utils.format_error(
-                DefinitionLoader._error_loading_msg,
+                DefinitionFile._error_loading_msg,
                 description=str(e),
-                path=self.definition_file.path
+                path=self.path
             ))
 
         if 'templates' not in file_content:
             self._raise_value_error("Missing 'templates' definition")
 
-        # TODO: add include_files to reload config, so the def file will be checked again
-
-        jr = JinjaRenderer()
         for t in file_content['templates']:
             template_options = self._parse_common_options(t, True)
 
             # load local variables
-            tcc = ContextCreator()
-            tcc.add_files(file_content['include_vars'], self.definition_file.path)
-            tcc.add(file_content['vars'], self.definition_file.path)
-            tcc.add_files(template_options['include_vars'], self.definition_file.path)
-            tcc.add(template_options['vars'], self.definition_file.path)
-            local_context = tcc.get_context()
+            tcc = ContextChain()
+            tcc.add_files(file_content['include_vars'], os.path.dirname(self.path))
+            tcc.add_context(file_content['vars'], self.path)
+            tcc.add_files(template_options['include_vars'], os.path.dirname(self.path))
+            tcc.add_context(template_options['vars'], self.path)
 
             if 'src' in t:
                 if type(t['src']) is str:
-                    try:
-                        if os.path.isabs(t['src']):
-                            template_options['src'] = jr.render_string(t['src'], local_context)
-                        else:
-                            template_options['src'] = jr.render_string(
-                                os.path.join(os.path.dirname(self.definition_file.path), t['src']), local_context)
-                    except Exception as e:
-                        self._raise_value_error(str(e))
+                    template_options['src'] = t['src']
                 else:
                     self._raise_value_error("Value of 'src' must be of type string")
             else:
@@ -437,24 +465,18 @@ class DefinitionLoader(object):
 
             if 'dest' in t:
                 if type(t['dest']) is str:
-                    try:
-                        if os.path.isabs(t['dest']):
-                            template_options['dest'] = jr.render_string(t['dest'], local_context)
-                        else:
-                            template_options['dest'] = jr.render_string(
-                                os.path.join(os.path.dirname(self.definition_file.path), t['dest']), local_context)
-                    except Exception as e:
-                        self._raise_value_error(str(e))
+                    template_options['dest'] = t['dest']
                 else:
                     self._raise_value_error("Value of 'dest' must be of type string")
             else:
                 self._raise_value_error("Missing key 'dest' in template definition")
 
             self.templates.append(
-                TemplateRenderer(
+                TemplateFile(
                     src=template_options['src'],
                     dest=template_options['dest'],
-                    context_creator=tcc,
+                    relative_path=os.path.dirname(self.path),
+                    context=tcc,
                     force_overwrite=self.force_overwrite,
                 )
             )
@@ -501,7 +523,7 @@ class DefinitionLoader(object):
             if len(failed_renders) > 0:
                 Log.error("Some renders failed:")
                 for fr in failed_renders:
-                    Log.error("    " + fr.template_file.path)
+                    Log.error("    " + fr.get_path())
                 return False
 
             return True
@@ -514,7 +536,7 @@ class DefinitionLoader(object):
         ))
 
 
-class TemplateRenderer(File):
+class TemplateFile(File):
     """ Represents a template file to be rendered with jinja2
 
     Args:
@@ -525,37 +547,45 @@ class TemplateRenderer(File):
 
     """
 
-    def __init__(self, src, dest, context_creator, force_overwrite=False):
-        self.template_file = File(src)
+    def __init__(self, src, dest, relative_path, context, force_overwrite=False):
+        super().__init__(src)
         self.dest = dest
-        self.context_creator = context_creator
+        self.relative_path = relative_path
+        self.context = context
         self.force_overwrite = force_overwrite
+
+        self.jr = JinjaRenderer()
+
+    def get_path(self):
+        return self._create_path(self.path)
+
+    def _create_path(self, path):
+        path = self.jr.render_string(path, self.context.get_context())
+        if os.path.isabs(path):
+            return path
+        else:
+            return os.path.join(self.relative_path, path)
 
     def render(self):
         """Renders the template file with jinja2"""
 
-        Log.debug("Loading the context...")
-        context = self.context_creator.get_context()
-
-        file_content = self.template_file.read()
-
-        # render file with jinja2
-        jr = JinjaRenderer()
+        file_content = self.read()
+        path = self.get_path()
 
         try:
             Log.debug("Rendering template file...")
-            rendered_file_content = jr.render_string(file_content, context)
+            rendered_file_content = self.jr.render_string(file_content, self.context.get_context())
         except Exception as e:
             raise Exception(Utils.format_error(
                 "Error while rendering template",
                 description=str(e),
-                path=self.template_file.path
+                path=path
             ))
 
         # remove values containing an omit placeholder
         try:
             processed_content = yaml.dump(
-                jr.remove_omit_from_dict(
+                self.jr.remove_omit_from_dict(
                     Utils.load_yaml(rendered_file_content, Loader=yaml.RoundTripLoader)
                 ),
                 indent=2,
@@ -568,16 +598,17 @@ class TemplateRenderer(File):
             raise Exception(Utils.format_error(
                 "Error while rendering template",
                 description=str(e),
-                path=self.template_file.path
+                path=path
             )).with_traceback(e.__traceback__)
 
         # Write rendered file
-        self.template_file.write(
+        dest_path = self._create_path(self.dest)
+        self.write(
             content=rendered_file_content,
-            path=self.dest,
+            path=dest_path,
             force_overwrite=self.force_overwrite
         )
-        Log.info("Created file '{0}'".format(self.template_file.path))
+        Log.info("Created file '{0}'".format(dest_path))
 
 
 class AutoRenderer(object):
@@ -650,7 +681,7 @@ def cli():
 
     try:
         definition_files = [
-            DefinitionLoader(
+            DefinitionFile(
                 path=path,
                 force_overwrite=args.force_overwrite,
             ) for path in args.definition_files
