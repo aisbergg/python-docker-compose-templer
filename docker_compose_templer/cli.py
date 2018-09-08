@@ -78,27 +78,6 @@ class Utils:
             raise
 
     @staticmethod
-    def evaluate_string(string):
-        """Evaluates a string containing a Python value.
-
-        Args:
-            string(str): A Python value represented as a string
-
-        Returns:
-            str, int, float, bool, list or dict: The value of the evaluated string
-        """
-        try:
-            # evaluate to int, float, list, dict
-            return literal_eval(string.strip())
-        except Exception as e:
-            try:
-                # evaluate bool from different variations
-                return bool(strtobool(string.strip()))
-            except Exception as e:
-                # string cannot be evaluated -> return string
-                return string
-
-    @staticmethod
     def format_error(heading, **kwargs):
         """Formats an error for pretty cli output
 
@@ -137,6 +116,26 @@ class JinjaRenderer(object):
 
         # Register additional filters
         self.env.filters = Utils.merge_dicts(self.env.filters, jinja_filter.filters)
+
+    def _evaluate_string(self, string):
+        """Evaluates a string containing a Python value.
+
+        Args:
+            string(str): A Python value represented as a string
+
+        Returns:
+            str, int, float, bool, list or dict: The value of the evaluated string
+        """
+        try:
+            # evaluate to int, float, list, dict
+            return literal_eval(string.strip())
+        except Exception as e:
+            try:
+                # evaluate bool from different variations
+                return bool(strtobool(string.strip()))
+            except Exception as e:
+                # string cannot be evaluated -> return string
+                return string
 
     class Omit(object):
         pass
@@ -177,7 +176,7 @@ class JinjaRenderer(object):
                 if rendered_value.find(JinjaRenderer.omit_placeholder) != -1:
                     return JinjaRenderer.Omit()
                 else:
-                    return Utils.evaluate_string(rendered_value)
+                    return self._evaluate_string(rendered_value)
 
         # lists
         elif type(value) is list:
@@ -262,51 +261,61 @@ class ContextChainElement(object):
         self.prev = prev
         self.next = None
         self.source = source
-        if type(source) == File:
-            self.source.add_on_change_callback(self.execute_on_change)
 
         self.jr = JinjaRenderer()
         self.cache = None
+        self.cache_hash = None
+        self.on_change_event = Event()
+        self.on_change_event += self._on_change
+        if type(source) == File:
+            self.source.on_change_event += self.on_change_event
+
+    def __del__(self):
+        if type(self.source) == File:
+            self.source.on_change_event -= self.on_change_event
 
     def get_context(self):
-        if self.cache:
+        if self.cache is not None:
             return self.cache
         else:
-            parent_context = self.prev.get_context() if self.prev else dict()
-            if type(self.source) == ContextFile:
-                file_content = self.source.read()
-                try:
-                    self.cache = self.jr.render_dict_and_add_to_context(
-                        Utils.load_yaml(file_content),
-                        parent_context
-                    )
-                except Exception as e:
-                    raise Exception(Utils.format_error(
-                        "Error loading variables from file",
-                        description=str(e),
-                        path=self.source.path
-                    ))
-            elif type(self.source) == dict:
-                try:
-                    self.cache = self.jr.render_dict_and_add_to_context(
-                        self.source['data'],
-                        parent_context
-                    )
-                except Exception as e:
-                    raise Exception(Utils.format_error(
-                        "Error loading variables",
-                        description=str(e),
-                        file_path=self.source['path']
-                    ))
-                
+            return self._create_context()
 
-            return self.cache
+    def _create_context(self):
+        parent_context = self.prev.get_context() if self.prev else dict()
+        if type(self.source) == File:
+            file_content = self.source.read()
+            try:
+                self.cache = self.jr.render_dict_and_add_to_context(
+                    Utils.load_yaml(file_content),
+                    parent_context
+                )
+            except Exception as e:
+                raise Exception(Utils.format_error(
+                    "Error loading variables from file",
+                    description=str(e),
+                    path=self.source.path
+                ))
+        elif type(self.source) == dict:
+            try:
+                self.cache = self.jr.render_dict_and_add_to_context(
+                    self.source['data'],
+                    parent_context
+                )
+            except Exception as e:
+                raise Exception(Utils.format_error(
+                    "Error loading variables",
+                    description=str(e),
+                    file_path=self.source['path']
+                ))
 
-    def invalidate_cache(self):
-        self.cache = None
+        self.cache_hash = sha1(str(self.cache).encode())
+        return self.cache
 
-    def execute_on_change(self):
-        raise NotImplementedError()
+    def _on_change(self):
+        prev_hash = self.cache_hash
+        self._create_context()
+        if self.cache_hash != prev_hash:
+            raise NotImplementedError()
 
 
 class ContextChain(object):
@@ -331,7 +340,7 @@ class ContextChain(object):
                 path = os.path.join(relative_path, path)
             tail = self.chain_elements[-1] if self.chain_elements else None
             elm = ContextChainElement(
-                source=ContextFile(path),
+                source=File.get_file(path),
                 prev=tail
             )
             self.chain_elements.append(elm)
@@ -342,36 +351,76 @@ class ContextChain(object):
         return self.chain_elements[-1].get_context()
 
 
-class File(object):
-    def __init__(self, path):
-        self.path = path
-        self.on_change_callbacks = []
+class Event(list):
+    """Event subscription.
 
-    def get_path(self):
-        return self.path
+    """
+
+    def __iadd__(self, handler):
+        self.append(handler)
+        return self
+
+    def __isub__(self, handler):
+        if handler in self:
+            self.remove(handler)
+        return self
+
+    def __call__(self, *args, **kwargs):
+        for f in self:
+            f(*args, **kwargs)
+
+
+class File(object):
+
+    files = dict()
+
+    def __init__(self, path):
+        self._path = path
+
+        self.cache = None
+        self.on_change_event = Event()
+        self.on_change_event += self._invalidate_cache
+
+    @property
+    def path(self):
+        return self._path
+
+    @path.setter
+    def path(self, path):
+        self._path = path
 
     def exists(self):
-        return os.path.exists(self.get_path())
+        return os.path.exists(self.path)
 
     def read(self):
-        path = self.get_path()
-        if not self.exists():
-            raise IOError(Utils.format_error(
-                "Error reading file",
-                description="File does not exist",
-                path=path
-            ))
-        if not os.path.isfile(path):
-            raise IOError(Utils.format_error(
-                "Error reading file",
-                description="Is not a file",
-                path=path
-            ))
-        Log.debug("Loading file '{0}'...".format(path))
-        with io.open(path, 'r', encoding='utf8') as f:
-            file_content = f.read()
+        path = self.path
 
-        return file_content
+        if self.cache and self.cache['path'] == path:
+            Log.debug("Return cached file '{0}'...".format(path))
+            return self.cache['content']
+
+        else:
+            self.cache = dict()
+
+            if not self.exists():
+                raise IOError(Utils.format_error(
+                    "Error reading file",
+                    description="File does not exist",
+                    path=path
+                ))
+            if not os.path.isfile(path):
+                raise IOError(Utils.format_error(
+                    "Error reading file",
+                    description="Is not a file",
+                    path=path
+                ))
+            Log.debug("Loading file '{0}'...".format(path))
+            with io.open(path, 'r', encoding='utf8') as f:
+                file_content = f.read()
+
+            self.cache['path'] = path
+            self.cache['content'] = file_content
+            return self.cache['content']
 
     def write(self, content, path, force_overwrite=False):
         """Writes the given content into the file
@@ -398,48 +447,60 @@ class File(object):
                 ))
         else:
             # create dir
-            if os.path.dirname(self.path):
-                os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            if os.path.dirname(self._path):
+                os.makedirs(os.path.dirname(self._path), exist_ok=True)
 
         # write content to file
         Log.debug("Writing file '{0}'...".format(path))
         with io.open(path, 'w', encoding='utf8') as f:
             f.write(content)
 
-    def add_on_change_callback(self, callback):
-        self.on_change_callbacks.append(callback)
+    def _invalidate_cache(self):
+        self.cache = None
 
-    def execute_on_change(self):
-        for a in self.on_change_callbacks:
-            a()
+    @classmethod
+    def get_file(cls, path):
+        return cls.files[path] if path in cls.files else cls(path)
+
+    @classmethod
+    def cleanup_unused_files(cls):
+        for k in list(cls.files.keys()):
+            if len(cls.files[k].on_change_event) == 1:
+                del cls.files[k]
 
 
-class ContextFile(File):
-
-    def __init__(self, path):
-        super().__init__(path)
-
-
-class DefinitionFile(File):
+class Definition(object):
 
     def __init__(self, path, force_overwrite=True):
-        super().__init__(path)
         self.force_overwrite = force_overwrite
 
         self.jr = JinjaRenderer()
+        self.on_change_event = Event()
+        self.on_change_event += self.parse
+        self.on_change_event += File.cleanup_unused_files
+        self.on_change_event += self.render_templates
+        self.file = File.get_file(path)
+        self.file.on_change_event += self.on_change_event
         self.templates = []
+
+    def __del__(self):
+        self.file.on_change_event -= self.on_change_event
 
     def parse(self):
+        # TODO: cleanup of prior templates
+
         self.templates = []
 
-        file_content = self.read()
+        file_content = self.file.read()
+        file_path = self.file.path
+
         try:
             file_content = Utils.load_yaml(file_content)
         except Exception as e:
             raise Exception(Utils.format_error(
-                DefinitionFile._error_loading_msg,
+                Definition._error_loading_msg,
                 description=str(e),
-                path=self.path
+                path=file_path
             ))
 
         if 'templates' not in file_content:
@@ -450,10 +511,10 @@ class DefinitionFile(File):
 
             # load local variables
             tcc = ContextChain()
-            tcc.add_files(file_content['include_vars'], os.path.dirname(self.path))
-            tcc.add_context(file_content['vars'], self.path)
-            tcc.add_files(template_options['include_vars'], os.path.dirname(self.path))
-            tcc.add_context(template_options['vars'], self.path)
+            tcc.add_files(file_content['include_vars'], os.path.dirname(file_path))
+            tcc.add_context(file_content['vars'], file_path)
+            tcc.add_files(template_options['include_vars'], os.path.dirname(file_path))
+            tcc.add_context(template_options['vars'], file_path)
 
             if 'src' in t:
                 if type(t['src']) is str:
@@ -472,10 +533,10 @@ class DefinitionFile(File):
                 self._raise_value_error("Missing key 'dest' in template definition")
 
             self.templates.append(
-                TemplateFile(
+                Template(
                     src=template_options['src'],
                     dest=template_options['dest'],
-                    relative_path=os.path.dirname(self.path),
+                    relative_path=os.path.dirname(file_path),
                     context=tcc,
                     force_overwrite=self.force_overwrite,
                 )
@@ -523,7 +584,7 @@ class DefinitionFile(File):
             if len(failed_renders) > 0:
                 Log.error("Some renders failed:")
                 for fr in failed_renders:
-                    Log.error("    " + fr.get_path())
+                    Log.error("    " + fr.path())
                 return False
 
             return True
@@ -536,7 +597,7 @@ class DefinitionFile(File):
         ))
 
 
-class TemplateFile(File):
+class Template(object):
     """ Represents a template file to be rendered with jinja2
 
     Args:
@@ -548,16 +609,30 @@ class TemplateFile(File):
     """
 
     def __init__(self, src, dest, relative_path, context, force_overwrite=False):
-        super().__init__(src)
+        self.src = src
         self.dest = dest
         self.relative_path = relative_path
         self.context = context
         self.force_overwrite = force_overwrite
 
         self.jr = JinjaRenderer()
+        self.on_change_event = Event()
+        self.on_change_event += self.render
+        self._file = File.get_file(self._create_path(self.src))
 
-    def get_path(self):
-        return self._create_path(self.path)
+    def __del__(self):
+        self._file.on_change_event -= self.on_change_event
+
+    @property
+    def file(self):
+        path = self._create_path(self.src)
+        if self._file.path == path:
+            return self._file
+        else:
+            self._file -= self.on_change_event
+            self._file = File.get_file(path)
+            self._file.on_change_event += self.on_change_event
+            return self._file
 
     def _create_path(self, path):
         path = self.jr.render_string(path, self.context.get_context())
@@ -569,8 +644,8 @@ class TemplateFile(File):
     def render(self):
         """Renders the template file with jinja2"""
 
-        file_content = self.read()
-        path = self.get_path()
+        file_content = self.file.read()
+        file_path = self._file.path
 
         try:
             Log.debug("Rendering template file...")
@@ -579,7 +654,7 @@ class TemplateFile(File):
             raise Exception(Utils.format_error(
                 "Error while rendering template",
                 description=str(e),
-                path=path
+                path=file_path
             ))
 
         # remove values containing an omit placeholder
@@ -598,12 +673,12 @@ class TemplateFile(File):
             raise Exception(Utils.format_error(
                 "Error while rendering template",
                 description=str(e),
-                path=path
+                path=file_path
             )).with_traceback(e.__traceback__)
 
         # Write rendered file
         dest_path = self._create_path(self.dest)
-        self.write(
+        self.file.write(
             content=rendered_file_content,
             path=dest_path,
             force_overwrite=self.force_overwrite
@@ -681,7 +756,7 @@ def cli():
 
     try:
         definition_files = [
-            DefinitionFile(
+            Definition(
                 path=path,
                 force_overwrite=args.force_overwrite,
             ) for path in args.definition_files
