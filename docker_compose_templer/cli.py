@@ -105,19 +105,17 @@ class Utils:
 
 
 class JinjaRenderer(object):
+    
     omit_placeholder = '__omit_place_holder__%s' % sha1(os.urandom(64)).hexdigest()
+    env = jinja2.Environment(
+        lstrip_blocks=True,
+        trim_blocks=True,
+        undefined=jinja2.StrictUndefined
+    )
+    env.filters = Utils.merge_dicts(env.filters, jinja_filter.filters)
 
-    def __init__(self):
-        self.env = jinja2.Environment(
-            lstrip_blocks=True,
-            trim_blocks=True,
-            undefined=jinja2.StrictUndefined
-        )
-
-        # Register additional filters
-        self.env.filters = Utils.merge_dicts(self.env.filters, jinja_filter.filters)
-
-    def _evaluate_string(self, string):
+    @staticmethod
+    def _evaluate_string(string):
         """Evaluates a string containing a Python value.
 
         Args:
@@ -140,12 +138,13 @@ class JinjaRenderer(object):
     class Omit(object):
         pass
 
-    def render_string(self, template_string, context):
+    @classmethod
+    def render_string(cls, template_string, context):
         # add omit variable to context
         context['omit'] = JinjaRenderer.omit_placeholder
 
         try:
-            return self.env.from_string(template_string).render(context)
+            return cls.env.from_string(template_string).render(context)
         except jinja_filter.MandatoryError as e:
             raise e
         except jinja2.UndefinedError as e:
@@ -155,34 +154,36 @@ class JinjaRenderer(object):
         except Exception as e:
             raise e
 
-    def render_dict_and_add_to_context(self, the_dict, context):
+    @classmethod
+    def render_dict_and_add_to_context(cls, the_dict, context):
         new_context = deepcopy(context)
         for k, v in the_dict.items():
-            processed_value = self._render_dict(v, new_context)
+            processed_value = cls._render_dict(v, new_context)
             if type(processed_value) is not JinjaRenderer.Omit:
                 new_context = Utils.merge_dicts(new_context, {k: processed_value})
         return new_context
 
-    def _render_dict(self, value, context):
+    @classmethod
+    def _render_dict(cls, value, context):
         if value is None:
             return None
 
         # str
         elif type(value) is str:
-            rendered_value = self.render_string(value, context)
+            rendered_value = cls.render_string(value, context)
             if rendered_value == value:
                 return value
             else:
                 if rendered_value.find(JinjaRenderer.omit_placeholder) != -1:
                     return JinjaRenderer.Omit()
                 else:
-                    return self._evaluate_string(rendered_value)
+                    return cls._evaluate_string(rendered_value)
 
         # lists
         elif type(value) is list:
             new_list = []
             for li in value:
-                processed_item = self._render_dict(li, context)
+                processed_item = cls._render_dict(li, context)
                 if type(processed_item) is not JinjaRenderer.Omit:
                     new_list.append(processed_item)
             return new_list
@@ -191,7 +192,7 @@ class JinjaRenderer(object):
         elif type(value) is dict:
             new_dict = dict()
             for k, v in value.items():
-                processed_value = self._render_dict(v, context)
+                processed_value = cls._render_dict(v, context)
                 if type(processed_value) is not JinjaRenderer.Omit:
                     new_dict[k] = processed_value
             return new_dict
@@ -200,7 +201,8 @@ class JinjaRenderer(object):
         else:
             return value
 
-    def remove_omit_from_dict(self, value):
+    @classmethod
+    def remove_omit_from_dict(cls, value):
         if value is None:
             return None
 
@@ -214,7 +216,7 @@ class JinjaRenderer(object):
         elif type(value) is yaml.comments.CommentedSeq or type(value) is list:
             vlen = len(value)
             for i in range(vlen - 1, -1, -1):
-                processed_item = self.remove_omit_from_dict(value[i])
+                processed_item = cls.remove_omit_from_dict(value[i])
                 if type(processed_item) is JinjaRenderer.Omit:
                     del value[i]
                     i -= 1
@@ -223,7 +225,7 @@ class JinjaRenderer(object):
         # dicts
         elif type(value) is yaml.comments.CommentedMap or type(value) is dict:
             for key in list(value.keys()):
-                processed_value = self.remove_omit_from_dict(value[key])
+                processed_value = cls.remove_omit_from_dict(value[key])
                 if type(processed_value) is JinjaRenderer.Omit:
                     del value[key]
             return value
@@ -262,7 +264,6 @@ class ContextChainElement(object):
         self.next = None
         self.source = source
 
-        self.jr = JinjaRenderer()
         self.cache = None
         self.cache_hash = None
         self.on_change_event = Event()
@@ -285,7 +286,7 @@ class ContextChainElement(object):
         if type(self.source) == File:
             file_content = self.source.read()
             try:
-                self.cache = self.jr.render_dict_and_add_to_context(
+                self.cache = JinjaRenderer.render_dict_and_add_to_context(
                     Utils.load_yaml(file_content),
                     parent_context
                 )
@@ -297,7 +298,7 @@ class ContextChainElement(object):
                 ))
         elif type(self.source) == dict:
             try:
-                self.cache = self.jr.render_dict_and_add_to_context(
+                self.cache = JinjaRenderer.render_dict_and_add_to_context(
                     self.source['data'],
                     parent_context
                 )
@@ -371,7 +372,6 @@ class Event(list):
 
 
 class File(object):
-
     files = dict()
 
     def __init__(self, path):
@@ -474,7 +474,6 @@ class Definition(object):
     def __init__(self, path, force_overwrite=True):
         self.force_overwrite = force_overwrite
 
-        self.jr = JinjaRenderer()
         self.on_change_event = Event()
         self.on_change_event += self.parse
         self.on_change_event += File.cleanup_unused_files
@@ -615,7 +614,6 @@ class Template(object):
         self.context = context
         self.force_overwrite = force_overwrite
 
-        self.jr = JinjaRenderer()
         self.on_change_event = Event()
         self.on_change_event += self.render
         self._file = File.get_file(self._create_path(self.src))
@@ -635,7 +633,7 @@ class Template(object):
             return self._file
 
     def _create_path(self, path):
-        path = self.jr.render_string(path, self.context.get_context())
+        path = JinjaRenderer.render_string(path, self.context.get_context())
         if os.path.isabs(path):
             return path
         else:
@@ -649,7 +647,7 @@ class Template(object):
 
         try:
             Log.debug("Rendering template file...")
-            rendered_file_content = self.jr.render_string(file_content, self.context.get_context())
+            rendered_file_content = JinjaRenderer.render_string(file_content, self.context.get_context())
         except Exception as e:
             raise Exception(Utils.format_error(
                 "Error while rendering template",
@@ -660,7 +658,7 @@ class Template(object):
         # remove values containing an omit placeholder
         try:
             processed_content = yaml.dump(
-                self.jr.remove_omit_from_dict(
+                JinjaRenderer.remove_omit_from_dict(
                     Utils.load_yaml(rendered_file_content, Loader=yaml.RoundTripLoader)
                 ),
                 indent=2,
