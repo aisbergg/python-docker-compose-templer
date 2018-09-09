@@ -1,8 +1,9 @@
 """ Custom Jinja2 filters """
+import json
+import re
+from distutils.util import strtobool
 
 import yaml
-import json
-
 from jinja2 import StrictUndefined, UndefinedError
 
 
@@ -12,52 +13,93 @@ class MandatoryError(UndefinedError):
 
 
 def mandatory(value, error_message=u''):
-    """Throws an 'UndefinedError' with an custom error massage, when value is undefined
-
-    Args:
-        value: Some value
-        error_message (str): Massage to be displayed, when an exception is thrown
-
-    Returns:
-        value.  Unchanged value
-
-    """
+    """Raise an 'UndefinedError' with an custom error massage, when value is undefined"""
     if type(value) is StrictUndefined:
         raise MandatoryError(str(error_message))
 
     return value
 
 
-def to_yaml(a, *args, **kw):
-    """Convert the value to YAML"""
-    return yaml.dump(a, allow_unicode=True, **kw)
+def regex_escape(string):
+    """Escape special characters in a string so it can be used in regular expressions"""
+    return re.escape(string)
 
 
-def to_nice_yaml(a, indent=4, *args, **kw):
-    """Make verbose, human readable YAML"""
-    return yaml.dump(a, indent=indent, allow_unicode=True, default_flow_style=False, **kw)
+def regex_findall(value, pattern, replacement, ignorecase=False, multiline=False):
+    """Do a regex findall on 'value'"""
+    flags = 0
+    if ignorecase:
+        flags |= re.I
+    if multiline:
+        flags |= re.M
+    compiled_pattern = re.compile(pattern, flags=flags)
+    return compiled_pattern.findall(str(value))
 
 
-def to_json(a, *args, **kw):
+def regex_replace(value, pattern, replacement, ignorecase=False, multiline=False):
+    """Do a regex search and replace on 'value'"""
+    flags = 0
+    if ignorecase:
+        flags |= re.I
+    if multiline:
+        flags |= re.M
+    compiled_pattern = re.compile(pattern, flags=flags)
+    return compiled_pattern.sub(replacement, str(value))
+
+
+def regex_search(value, pattern, ignorecase=False, multiline=False):
+    """Do a regex search on 'value'"""
+    flags = 0
+    if ignorecase:
+        flags |= re.I
+    if multiline:
+        flags |= re.M
+    compiled_pattern = re.compile(pattern, flags=flags)
+    match = re.search(compiled_pattern, str(value), flags)
+    if match:
+        return (match.group(), match.groups())
+    else:
+        return (None, ())
+
+
+def string_contains(value, pattern, ignorecase=False, multiline=False):
+    """Search the 'value' for 'pattern' and return True if at least one match was found"""
+    match = regex_search(value, pattern, ignorecase, multiline)
+    if match[0]:
+        return True
+    else:
+        return False
+
+
+def to_bool(string, default_value=None):
+    """Convert a string representation of a boolean value to an actual bool"""
+    return bool(strtobool(string).strip())
+
+
+def to_yaml(value, indent=2, *args, **kw):
+    """Convert the value to human readable YAML"""
+    return yaml.dump(value, indent=indent, allow_unicode=True, default_flow_style=False, **kw)
+
+
+def to_json(value, *args, **kw):
     """Convert the value to JSON"""
-    return json.dumps(a, *args, **kw)
+    return json.dumps(value, *args, **kw)
 
 
-def to_nice_json(a, indent=4, *args, **kw):
-    """Make verbose, human readable JSON"""
-    try:
-        return json.dumps(a, indent=indent, sort_keys=True, separators=(',', ': '), *args, **kw)
-    except Exception as e:
-        # Fallback to the to_json filter
-        return to_json(a, *args, **kw)
-
+def to_nice_json(value, indent=4, *args, **kw):
+    """Convert the value to human readable JSON"""
+    return json.dumps(value, indent=indent, sort_keys=True, separators=(',', ': '), *args, **kw)
 
 
 # register the filters
 filters = {
     'mandatory': mandatory,
+    'regex_escape': regex_escape,
+    'regex_findall': regex_findall,
+    'regex_replace': regex_replace,
+    'regex_search': regex_search,
+    'string_contains': string_contains,
     'to_yaml': to_yaml,
-    'to_nice_yaml': to_nice_yaml,
     'to_json': to_json,
     'to_nice_json': to_nice_json,
 }
