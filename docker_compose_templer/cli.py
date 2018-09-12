@@ -213,7 +213,7 @@ class JinjaRenderer(object):
                 return value
 
         # lists
-        elif type(value) is yaml.comments.CommentedSeq or type(value) is list:
+        elif isinstance(value, (yaml.comments.CommentedSeq, list)):
             vlen = len(value)
             for i in range(vlen - 1, -1, -1):
                 processed_item = cls.remove_omit_from_dict(value[i])
@@ -223,7 +223,7 @@ class JinjaRenderer(object):
             return value
 
         # dicts
-        elif type(value) is yaml.comments.CommentedMap or type(value) is dict:
+        elif isinstance(value, (yaml.comments.CommentedMap, dict)):
             for key in list(value.keys()):
                 processed_value = cls.remove_omit_from_dict(value[key])
                 if type(processed_value) is JinjaRenderer.Omit:
