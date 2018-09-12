@@ -80,10 +80,10 @@ def regex_search(value, pattern, *args, **kwargs):
                 items.append(match.group(item))
             return items
 
-def string_contains(value, pattern, ignorecase=False, multiline=False):
+def regex_contains(value, pattern, ignorecase=False, multiline=False):
     """Search the 'value' for 'pattern' and return True if at least one match was found"""
-    match = regex_search(value, pattern, ignorecase, multiline)
-    if match[0]:
+    match = regex_search(value, pattern, ignorecase=ignorecase, multiline=multiline)
+    if match:
         return True
     else:
         return False
@@ -122,7 +122,7 @@ filters = {
     'regex_findall': regex_findall,
     'regex_replace': regex_replace,
     'regex_search': regex_search,
-    'string_contains': string_contains,
+    'regex_contains': regex_contains,
     'to_yaml': to_yaml,
     'to_json': to_json,
     'to_nice_json': to_nice_json,
