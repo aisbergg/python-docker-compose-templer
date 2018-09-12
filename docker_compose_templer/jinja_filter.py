@@ -25,7 +25,7 @@ def regex_escape(string):
     return re.escape(string)
 
 
-def regex_findall(value, pattern, replacement, ignorecase=False, multiline=False):
+def regex_findall(value, pattern, ignorecase=False, multiline=False):
     """Do a regex findall on 'value'"""
     flags = 0
     if ignorecase:
