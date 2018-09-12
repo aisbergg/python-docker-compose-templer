@@ -3,7 +3,7 @@ import json
 import re
 from distutils.util import strtobool
 
-import yaml
+import ruamel.yaml as yaml
 from jinja2 import StrictUndefined, UndefinedError
 
 
