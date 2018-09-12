@@ -96,8 +96,14 @@ def to_bool(string, default_value=None):
 
 def to_yaml(value, indent=2, *args, **kw):
     """Convert the value to human readable YAML"""
-    return yaml.dump(value, indent=indent, allow_unicode=True, default_flow_style=False, **kw)
-
+    return yaml.dump(
+        value,
+        block_seq_indent=indent,
+        indent=indent,
+        allow_unicode=True,
+        default_flow_style=False,
+        **kw
+    )
 
 def to_json(value, *args, **kw):
     """Convert the value to JSON"""
