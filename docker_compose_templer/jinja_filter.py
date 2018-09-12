@@ -47,20 +47,38 @@ def regex_replace(value, pattern, replacement, ignorecase=False, multiline=False
     return compiled_pattern.sub(replacement, str(value))
 
 
-def regex_search(value, pattern, ignorecase=False, multiline=False):
+def regex_search(value, pattern, *args, **kwargs):
     """Do a regex search on 'value'"""
+    groups = []
+    for arg in args:
+        match = re.match(r'\\(\d+)', arg)
+        if match:
+            groups.append(int(match.group(1)))
+            continue
+
+        match = re.match(r'^\\g<(\S+)>', arg)
+        if match:
+            groups.append(match.group(1))
+            continue
+
+        raise Exception("Unknown argument: '{}'".format(str(arg)))
+
     flags = 0
-    if ignorecase:
+    if kwargs.get('ignorecase'):
         flags |= re.I
-    if multiline:
+    if kwargs.get('multiline'):
         flags |= re.M
     compiled_pattern = re.compile(pattern, flags=flags)
-    match = re.search(compiled_pattern, str(value), flags)
-    if match:
-        return (match.group(), match.groups())
-    else:
-        return (None, ())
+    match = re.search(compiled_pattern, str(value))
 
+    if match:
+        if not groups:
+            return match.group()
+        else:
+            items = []
+            for item in groups:
+                items.append(match.group(item))
+            return items
 
 def string_contains(value, pattern, ignorecase=False, multiline=False):
     """Search the 'value' for 'pattern' and return True if at least one match was found"""
