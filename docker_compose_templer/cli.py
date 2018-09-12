@@ -104,8 +104,31 @@ class Utils:
         return '\n'.join(formatted_error)
 
 
+class Log(object):
+    """Stupid logger that writes messages to stdout or stderr accordingly"""
+
+    ERROR = 30
+    INFO = 20
+    DEBUG = 10
+    level = ERROR
+
+    @staticmethod
+    def debug(msg):
+        if Log.level <= 10:
+            sys.stdout.write(msg + "\n")
+
+    @staticmethod
+    def info(msg):
+        if Log.level <= 20:
+            sys.stdout.write(msg + "\n")
+
+    @staticmethod
+    def error(msg):
+        sys.stderr.write(msg + "\n")
+
+
 class JinjaRenderer(object):
-    
+
     omit_placeholder = '__omit_place_holder__%s' % sha1(os.urandom(64)).hexdigest()
     env = jinja2.Environment(
         lstrip_blocks=True,
@@ -234,27 +257,115 @@ class JinjaRenderer(object):
             return value
 
 
-class Log(object):
-    """Stupid logger that writes messages to stdout or stderr accordingly"""
+class File(object):
+    files = dict()
 
-    ERROR = 30
-    INFO = 20
-    DEBUG = 10
-    level = ERROR
+    def __init__(self, path, watch_changes=False):
+        self._path = path
+
+        self.cache = None
+        self.on_change_event = Event()
+        self.on_change_event += self._invalidate_cache
+        self.notifier = None
+        if watch_changes:
+            self.wm = pyinotify.WatchManager()
+            self.notifier = pyinotify.Notifier(self.wm, self.on_change_event)
+
+    def __del__(self):
+        self.remove()
+
+    def remove(self):
+        if self.notifier:
+            self.notifier.stop()
+
+    @property
+    def path(self):
+        return self._path
+
+    @path.setter
+    def path(self, path):
+        self._path = path
+
+    def exists(self):
+        return os.path.exists(self.path)
+
+    def read(self):
+        path = self.path
+
+        if self.cache and self.cache['path'] == path:
+            Log.debug("Return cached file '{0}'...".format(path))
+            return self.cache['content']
+
+        else:
+            self.cache = dict()
+
+            if not self.exists():
+                raise FileNotFoundError(Utils.format_error(
+                    "Error reading file",
+                    description="File does not exist",
+                    path=path
+                ))
+            if not os.path.isfile(path):
+                raise IOError(Utils.format_error(
+                    "Error reading file",
+                    description="Is not a file",
+                    path=path
+                ))
+            Log.debug("Loading file '{0}'...".format(path))
+            with io.open(path, 'r', encoding='utf8') as f:
+                file_content = f.read()
+
+            self.cache['path'] = path
+            self.cache['content'] = file_content
+            return self.cache['content']
 
     @staticmethod
-    def debug(msg):
-        if Log.level <= 10:
-            sys.stdout.write(msg + "\n")
+    def write(content, path, force_overwrite=False):
+        """Writes the given content into the file
 
-    @staticmethod
-    def info(msg):
-        if Log.level <= 20:
-            sys.stdout.write(msg + "\n")
+        Args:
+            content (str): Content to write into the file
 
-    @staticmethod
-    def error(msg):
-        sys.stderr.write(msg + "\n")
+        Raises:
+            IOError: If desired output file exists or is not a file
+        """
+        if os.path.exists(path):
+            if os.path.isfile(path):
+                if not force_overwrite:
+                    raise IOError(Utils.format_error(
+                        "Error writing file",
+                        description="Destination already exists. Use '-f' flag to overwrite the file",
+                        path=path
+                    ))
+            else:
+                raise IOError(Utils.format_error(
+                    "Error writing file",
+                    description="Destination exists and is not a file",
+                    path=path
+                ))
+        else:
+            # create dir
+            if os.path.dirname(path):
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        # write content to file
+        Log.debug("Writing file '{0}'...".format(path))
+        with io.open(path, 'w', encoding='utf8') as f:
+            f.write(content)
+
+    def _invalidate_cache(self):
+        self.cache = None
+
+    @classmethod
+    def get_file(cls, path):
+        return cls.files[path] if path in cls.files else cls(path)
+
+    @classmethod
+    def cleanup_unused_files(cls):
+        for k in list(cls.files.keys()):
+            if len(cls.files[k].on_change_event) == 1:
+                cls.files[k].remove()
+                del cls.files[k]
 
 
 class ContextChainElement(object):
@@ -272,6 +383,9 @@ class ContextChainElement(object):
             self.source.on_change_event += self.on_change_event
 
     def __del__(self):
+        self.remove()
+
+    def remove(self):
         if type(self.source) == File:
             self.source.on_change_event -= self.on_change_event
 
@@ -371,104 +485,6 @@ class Event(list):
             f(*args, **kwargs)
 
 
-class File(object):
-    files = dict()
-
-    def __init__(self, path):
-        self._path = path
-
-        self.cache = None
-        self.on_change_event = Event()
-        self.on_change_event += self._invalidate_cache
-
-    @property
-    def path(self):
-        return self._path
-
-    @path.setter
-    def path(self, path):
-        self._path = path
-
-    def exists(self):
-        return os.path.exists(self.path)
-
-    def read(self):
-        path = self.path
-
-        if self.cache and self.cache['path'] == path:
-            Log.debug("Return cached file '{0}'...".format(path))
-            return self.cache['content']
-
-        else:
-            self.cache = dict()
-
-            if not self.exists():
-                raise IOError(Utils.format_error(
-                    "Error reading file",
-                    description="File does not exist",
-                    path=path
-                ))
-            if not os.path.isfile(path):
-                raise IOError(Utils.format_error(
-                    "Error reading file",
-                    description="Is not a file",
-                    path=path
-                ))
-            Log.debug("Loading file '{0}'...".format(path))
-            with io.open(path, 'r', encoding='utf8') as f:
-                file_content = f.read()
-
-            self.cache['path'] = path
-            self.cache['content'] = file_content
-            return self.cache['content']
-
-    def write(self, content, path, force_overwrite=False):
-        """Writes the given content into the file
-
-        Args:
-            content (str): Content to write into the file
-
-        Raises:
-            IOError: If desired output file exists or is not a file
-        """
-        if os.path.exists(path):
-            if os.path.isfile(path):
-                if not force_overwrite:
-                    raise IOError(Utils.format_error(
-                        "Error writing file",
-                        description="Destination already exists. Use '-f' flag to overwrite the file",
-                        path=path
-                    ))
-            else:
-                raise IOError(Utils.format_error(
-                    "Error writing file",
-                    description="Destination exists and is not a file",
-                    path=path
-                ))
-        else:
-            # create dir
-            if os.path.dirname(self._path):
-                os.makedirs(os.path.dirname(self._path), exist_ok=True)
-
-        # write content to file
-        Log.debug("Writing file '{0}'...".format(path))
-        with io.open(path, 'w', encoding='utf8') as f:
-            f.write(content)
-
-    def _invalidate_cache(self):
-        self.cache = None
-
-    @classmethod
-    def get_file(cls, path):
-        return cls.files[path] if path in cls.files else cls(path)
-
-    @classmethod
-    def cleanup_unused_files(cls):
-        for k in list(cls.files.keys()):
-            if len(cls.files[k].on_change_event) == 1:
-                del cls.files[k]
-
-
 class Definition(object):
 
     def __init__(self, path, force_overwrite=True):
@@ -476,13 +492,15 @@ class Definition(object):
 
         self.on_change_event = Event()
         self.on_change_event += self.parse
-        self.on_change_event += File.cleanup_unused_files
         self.on_change_event += self.render_templates
         self.file = File.get_file(path)
         self.file.on_change_event += self.on_change_event
         self.templates = []
 
     def __del__(self):
+        self.remove()
+
+    def remove(self):
         self.file.on_change_event -= self.on_change_event
 
     def parse(self):
@@ -619,6 +637,9 @@ class Template(object):
         self._file = File.get_file(self._create_path(self.src))
 
     def __del__(self):
+        self.remove()
+
+    def remove(self):
         self._file.on_change_event -= self.on_change_event
 
     @property
