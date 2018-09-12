@@ -2,6 +2,7 @@ import argparse
 import io
 import os
 import sys
+import time
 import traceback
 from ast import literal_eval
 from copy import deepcopy
@@ -265,11 +266,12 @@ class File(object):
 
         self.cache = None
         self.on_change_event = Event()
-        self.on_change_event += self._invalidate_cache
         self.notifier = None
         if watch_changes:
+            mask = pyinotify.IN_CREATE | pyinotify.IN_MODIFY
             self.wm = pyinotify.WatchManager()
-            self.notifier = pyinotify.Notifier(self.wm, self.on_change_event)
+            self.wm.add_watch(self.path, mask, rec=False)
+            self.notifier = pyinotify.Notifier(self.wm, self._on_change, timeout=10)
 
     def __del__(self):
         self.remove()
@@ -317,6 +319,7 @@ class File(object):
 
             self.cache['path'] = path
             self.cache['content'] = file_content
+            self.cache['hash'] = sha1(file_content.encode()).hexdigest()
             return self.cache['content']
 
     @staticmethod
@@ -353,17 +356,24 @@ class File(object):
         with io.open(path, 'w', encoding='utf8') as f:
             f.write(content)
 
-    def _invalidate_cache(self):
+    def _on_change(self, *args, **kwargs):
+        old_hash = self.cache['hash']
         self.cache = None
+        self.read()
+        if old_hash != self.cache['hash']:
+            Log.debug("File '{}' changed".format(self.path))
+            self.on_change_event()
 
     @classmethod
-    def get_file(cls, path):
-        return cls.files[path] if path in cls.files else cls(path)
+    def get_file(cls, path, watch_changes=False):
+        if path not in cls.files:
+            cls.files[path] = cls(path, watch_changes)
+        return cls.files[path]
 
     @classmethod
     def cleanup_unused_files(cls):
         for k in list(cls.files.keys()):
-            if len(cls.files[k].on_change_event) == 1:
+            if len(cls.files[k].on_change_event) == 0:
                 cls.files[k].remove()
                 del cls.files[k]
 
@@ -378,9 +388,8 @@ class ContextChainElement(object):
         self.cache = None
         self.cache_hash = None
         self.on_change_event = Event()
-        self.on_change_event += self._on_change
         if type(source) == File:
-            self.source.on_change_event += self.on_change_event
+            self.source.on_change_event += self._on_change
 
     def __del__(self):
         self.remove()
@@ -423,20 +432,21 @@ class ContextChainElement(object):
                     file_path=self.source['path']
                 ))
 
-        self.cache_hash = sha1(str(self.cache).encode())
+        self.cache_hash = sha1(str(self.cache).encode()).hexdigest()
         return self.cache
 
-    def _on_change(self):
-        prev_hash = self.cache_hash
+    def _on_change(self, *args, **kwargs):
+        old_hash = self.cache_hash
         self._create_context()
-        if self.cache_hash != prev_hash:
-            raise NotImplementedError()
+        if self.cache_hash != old_hash:
+            self.on_change_event()
 
 
 class ContextChain(object):
 
-    def __init__(self):
+    def __init__(self, watch_changes=False):
         self.chain_elements = []
+        self.watch_changes = watch_changes
 
     def add_context(self, context, origin_path):
         if context:
@@ -455,7 +465,7 @@ class ContextChain(object):
                 path = os.path.join(relative_path, path)
             tail = self.chain_elements[-1] if self.chain_elements else None
             elm = ContextChainElement(
-                source=File.get_file(path),
+                source=File.get_file(path, self.watch_changes),
                 prev=tail
             )
             self.chain_elements.append(elm)
@@ -487,21 +497,19 @@ class Event(list):
 
 class Definition(object):
 
-    def __init__(self, path, force_overwrite=True):
+    def __init__(self, path, force_overwrite=True, watch_changes=False):
         self.force_overwrite = force_overwrite
+        self.watch_changes = watch_changes
 
-        self.on_change_event = Event()
-        self.on_change_event += self.parse
-        self.on_change_event += self.render_templates
-        self.file = File.get_file(path)
-        self.file.on_change_event += self.on_change_event
+        self.file = File.get_file(path, watch_changes)
+        self.file.on_change_event += self._on_change
         self.templates = []
 
     def __del__(self):
         self.remove()
 
     def remove(self):
-        self.file.on_change_event -= self.on_change_event
+        self.file.on_change_event -= self._on_change
 
     def parse(self):
         # TODO: cleanup of prior templates
@@ -527,7 +535,7 @@ class Definition(object):
             template_options = self._parse_common_options(t, True)
 
             # load local variables
-            tcc = ContextChain()
+            tcc = ContextChain(self.watch_changes)
             tcc.add_files(file_content['include_vars'], os.path.dirname(file_path))
             tcc.add_context(file_content['vars'], file_path)
             tcc.add_files(template_options['include_vars'], os.path.dirname(file_path))
@@ -556,6 +564,7 @@ class Definition(object):
                     relative_path=os.path.dirname(file_path),
                     context=tcc,
                     force_overwrite=self.force_overwrite,
+                    watch_changes=self.watch_changes
                 )
             )
 
@@ -606,6 +615,10 @@ class Definition(object):
 
             return True
 
+    def _on_change(self, *args, **kwargs):
+        self.parse()
+        self.render_templates()
+
     def _raise_value_error(self, description):
         raise ValueError(Utils.format_error(
             "Error loading options from definition file",
@@ -625,16 +638,16 @@ class Template(object):
 
     """
 
-    def __init__(self, src, dest, relative_path, context, force_overwrite=False):
+    def __init__(self, src, dest, relative_path, context, force_overwrite=False, watch_changes=False):
         self.src = src
         self.dest = dest
         self.relative_path = relative_path
         self.context = context
         self.force_overwrite = force_overwrite
+        self.watch_changes = watch_changes
 
-        self.on_change_event = Event()
-        self.on_change_event += self.render
-        self._file = File.get_file(self._create_path(self.src))
+        self._file = File.get_file(self._create_path(self.src), self.watch_changes)
+        self._file.on_change_event += self.render
 
     def __del__(self):
         self.remove()
@@ -648,9 +661,9 @@ class Template(object):
         if self._file.path == path:
             return self._file
         else:
-            self._file -= self.on_change_event
-            self._file = File.get_file(path)
-            self._file.on_change_event += self.on_change_event
+            self._file -= self.render
+            self._file = File.get_file(path, self.watch_changes)
+            self._file.on_change_event += self.render
             return self._file
 
     def _create_path(self, path):
@@ -707,8 +720,9 @@ class Template(object):
 
 class AutoRenderer(object):
 
-    def __init__(self, definition_files):
-        self.definition_files = definition_files
+    def __init__(self, definitions, force_overwrite):
+        self.definitions = definitions
+        self.force_overwrite = force_overwrite
 
     class RenderHandler(pyinotify.ProcessEvent):
 
@@ -728,24 +742,34 @@ class AutoRenderer(object):
                 Log.error(str(e))
 
     def start(self):
-        import asyncore
-
         Log.info("Starting Auto Renderer...")
-        mask = pyinotify.IN_CREATE | pyinotify.IN_MODIFY
-        notifiers = []
-        for df in self.definition_files:
-            df.parse()
-            for template in df.get_template_files():
-                handler = self.RenderHandler(template)
-                wm = pyinotify.WatchManager()
-                notifiers.append(pyinotify.AsyncNotifier(wm, handler))
-                wm.add_watch(template.path, mask)
-                for cf in template.context.context_files:
-                    wm.add_watch(cf.path, mask)
 
-        notifiers[0].stop()
-        del notifiers[0]
-        asyncore.loop()
+        # render on start
+        for d in self.definitions:
+            try:
+                d.parse()
+                d.render_templates()
+            except:
+                pass
+
+        Log.debug("Listening for file changes...")
+
+        # start file change listener
+        while(True):
+            try:
+                for notifier in [f.notifier for _, f in File.files.items()]:
+                    try:
+                        if notifier.check_events():
+                            notifier.read_events()
+                            notifier.process_events()
+                    except KeyboardInterrupt:
+                        raise
+                        break
+                time.sleep(0.1)
+            except KeyboardInterrupt:
+                break
+
+        Log.info("Auto Renderer stopped")
 
 
 def cli():
@@ -762,7 +786,7 @@ def cli():
     parser.add_argument("-h", "--help", action="help",
                         help="Show this help message and exit")
     parser.add_argument('-v', '--verbose', dest='verbose', action='count',
-                        default=0, help="Enable verbose mode (-vv for debug mode)")
+                        default=0, help="Enable verbose mode")
     parser.add_argument('--version', action='version', version='Templer {0}, Jinja2 {1}'.format(
         __version__, jinja2.__version__), help="Prints the program version and quits")
     parser.add_argument('definition_files', nargs='+',
@@ -771,30 +795,39 @@ def cli():
 
     # initialize dumb logger
     levels = [Log.ERROR, Log.INFO, Log.DEBUG]
-    Log.level = levels[min(len(levels) - 1, args.verbose)]
+    Log.level = levels[min(len(levels) - 1, args.verbose + 1)]
 
     try:
-        definition_files = [
+        definitions = [
             Definition(
                 path=path,
                 force_overwrite=args.force_overwrite,
+                watch_changes=args.auto_render
             ) for path in args.definition_files
         ]
-        for df in definition_files:
-            df.parse()
+        for d in definitions:
+            if not d.file.exists():
+                raise FileNotFoundError(Utils.format_error(
+                    "Definition file does not exist",
+                    path=d.file.path
+                ))
 
-        if args.auto_render:
-            ar = AutoRenderer(definition_files)
-            exit(ar.start())
+        if not args.auto_render:
+            # parse definition files
+            for df in definitions:
+                df.parse()
 
-        else:
+            # render templates
             render_failed = False
-            for df in definition_files:
+            for df in definitions:
                 if not df.render_templates():
                     render_failed = True
 
             if render_failed:
                 exit(1)
+        else:
+            ar = AutoRenderer(definitions, args.force_overwrite)
+            ar.start()
 
     except Exception as e:
         # catch errors and print to stderr
