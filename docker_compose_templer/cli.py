@@ -677,7 +677,7 @@ class Template(object):
         # Write rendered file
         dest_path = self._create_path(self.dest)
         self.file.write(
-            content=rendered_file_content,
+            content=processed_content,
             path=dest_path,
             force_overwrite=self.force_overwrite
         )
