@@ -104,6 +104,13 @@ class Utils:
 
         return '\n'.join(formatted_error)
 
+    @staticmethod
+    def hash(*args):
+        hash = ''
+        for string in args:
+            hash = sha1((hash + str(string)).encode()).hexdigest()
+        return hash
+
 
 class Log(object):
     """Stupid logger that writes messages to stdout or stderr accordingly"""
@@ -319,7 +326,7 @@ class File(object):
 
             self.cache['path'] = path
             self.cache['content'] = file_content
-            self.cache['hash'] = sha1(file_content.encode()).hexdigest()
+            self.cache['hash'] = Utils.hash(file_content)
             return self.cache['content']
 
     @staticmethod
@@ -391,13 +398,6 @@ class ContextChainElement(object):
         if type(source) == File:
             self.source.on_change_event += self._on_change
 
-    def __del__(self):
-        self.remove()
-
-    def remove(self):
-        if type(self.source) == File:
-            self.source.on_change_event -= self.on_change_event
-
     def get_context(self):
         if self.cache is not None:
             return self.cache
@@ -432,7 +432,7 @@ class ContextChainElement(object):
                     file_path=self.source['path']
                 ))
 
-        self.cache_hash = sha1(str(self.cache).encode()).hexdigest()
+        self.cache_hash = Utils.hash(self.cache)
         return self.cache
 
     def _on_change(self, *args, **kwargs):
@@ -440,6 +440,10 @@ class ContextChainElement(object):
         self._create_context()
         if self.cache_hash != old_hash:
             self.on_change_event()
+
+    def remove(self):
+        if type(self.source) == File:
+            self.source.on_change_event -= self._on_change
 
 
 class ContextChain(object):
@@ -475,6 +479,11 @@ class ContextChain(object):
     def get_context(self):
         return self.chain_elements[-1].get_context()
 
+    def remove(self):
+        for ce in self.chain_elements:
+            ce.remove()
+        self.chain_elements = None
+
 
 class Event(list):
     """Event subscription.
@@ -503,18 +512,13 @@ class Definition(object):
 
         self.file = File.get_file(path, watch_changes)
         self.file.on_change_event += self._on_change
-        self.templates = []
-
-    def __del__(self):
-        self.remove()
-
-    def remove(self):
-        self.file.on_change_event -= self._on_change
+        self.templates = dict()
+        self.changed_templates = list()
+        self.failed_renders = list()
 
     def parse(self):
-        # TODO: cleanup of prior templates
-
-        self.templates = []
+        templates = dict()
+        self.changed_templates = list()
 
         file_content = self.file.read()
         file_path = self.file.path
@@ -523,23 +527,18 @@ class Definition(object):
             file_content = Utils.load_yaml(file_content)
         except Exception as e:
             raise Exception(Utils.format_error(
-                Definition._error_loading_msg,
+                "Error loading options from definition file",
                 description=str(e),
                 path=file_path
             ))
 
         if 'templates' not in file_content:
-            self._raise_value_error("Missing 'templates' definition")
+            self._raise_value_error("Missing key 'templates' in template definition")
+
+        global_options = self._parse_variable_options(file_content)
 
         for t in file_content['templates']:
-            template_options = self._parse_common_options(t, True)
-
-            # load local variables
-            tcc = ContextChain(self.watch_changes)
-            tcc.add_files(file_content['include_vars'], os.path.dirname(file_path))
-            tcc.add_context(file_content['vars'], file_path)
-            tcc.add_files(template_options['include_vars'], os.path.dirname(file_path))
-            tcc.add_context(template_options['vars'], file_path)
+            template_options = self._parse_variable_options(t)
 
             if 'src' in t:
                 if type(t['src']) is str:
@@ -557,18 +556,39 @@ class Definition(object):
             else:
                 self._raise_value_error("Missing key 'dest' in template definition")
 
-            self.templates.append(
-                Template(
-                    src=template_options['src'],
-                    dest=template_options['dest'],
-                    relative_path=os.path.dirname(file_path),
-                    context=tcc,
-                    force_overwrite=self.force_overwrite,
-                    watch_changes=self.watch_changes
-                )
-            )
+            thash = Utils.hash(global_options['include_vars'], global_options['vars'], template_options['include_vars'], template_options['vars'], template_options['src'], template_options['dest'])
 
-    def _parse_common_options(self, options, set_defaults):
+            # reuse previous parsed templates (only in Auto Renderer mode)
+            if thash in self.templates:
+                templates[thash] = self.templates[thash]
+                continue
+
+            # load local variables
+            tcc = ContextChain(self.watch_changes)
+            tcc.add_files(global_options['include_vars'], os.path.dirname(file_path))
+            tcc.add_context(global_options['vars'], file_path)
+            tcc.add_files(template_options['include_vars'], os.path.dirname(file_path))
+            tcc.add_context(template_options['vars'], file_path)
+
+            templates[thash] = Template(
+                src=template_options['src'],
+                dest=template_options['dest'],
+                relative_path=os.path.dirname(file_path),
+                context=tcc,
+                force_overwrite=self.force_overwrite,
+                watch_changes=self.watch_changes
+            )
+            self.changed_templates.append(thash)
+
+        # cleanup undefined templates (only in Auto Renderer mode)
+        for thash, t in self.templates.items():
+            if thash not in templates:
+                t.remove()
+        File.cleanup_unused_files()
+
+        self.templates = templates
+
+    def _parse_variable_options(self, options):
         processed_options = dict()
 
         if 'vars' in options:
@@ -576,7 +596,7 @@ class Definition(object):
                 processed_options['vars'] = options['vars']
             else:
                 self._raise_value_error("Value of 'vars' must be of type dict")
-        elif set_defaults:
+        else:
             processed_options['vars'] = dict()
 
         if 'include_vars' in options:
@@ -586,34 +606,18 @@ class Definition(object):
                 processed_options['include_vars'] = [options['include_vars']]
             else:
                 self._raise_value_error("Value of 'include_vars' must be of type list or string")
-        elif set_defaults:
+        else:
             processed_options['include_vars'] = []
 
         return processed_options
 
-    def get_template_files(self):
-        return self.templates
-
     def render_templates(self):
-        if self.templates:
-            failed_renders = []
-            for t in self.templates:
-                try:
-                    t.render()
-                except Exception as e:
-                    failed_renders.append(t)
-                    if Log.level <= 10:
-                        Log.error(traceback.format_exc())
-                    else:
-                        Log.error(str(e))
-
-            if len(failed_renders) > 0:
-                Log.error("Some renders failed:")
-                for fr in failed_renders:
-                    Log.error("    " + fr.path())
-                return False
-
-            return True
+        for thash in self.changed_templates:
+            t = self.templates[thash]
+            try:
+                t.render()
+            except Exception as e:
+                self.failed_renders.append(t.file.path)
 
     def _on_change(self, *args, **kwargs):
         self.parse()
@@ -649,11 +653,9 @@ class Template(object):
         self._file = File.get_file(self._create_path(self.src), self.watch_changes)
         self._file.on_change_event += self.render
 
-    def __del__(self):
-        self.remove()
-
     def remove(self):
-        self._file.on_change_event -= self.on_change_event
+        self.context.remove()
+        self._file.on_change_event -= self.render
 
     @property
     def file(self):
@@ -820,11 +822,18 @@ def cli():
             # render templates
             render_failed = False
             for df in definitions:
-                if not df.render_templates():
-                    render_failed = True
+                df.render_templates()
 
-            if render_failed:
-                exit(1)
+            failed_renders = list()
+            for df in definitions:
+                failed_renders += df.failed_renders
+
+            if failed_renders:
+                Log.error("Some renders failed:")
+                for fr in failed_renders:
+                    Log.error("  " + fr)
+                    exit(1)
+
         else:
             ar = AutoRenderer(definitions, args.force_overwrite)
             ar.start()
