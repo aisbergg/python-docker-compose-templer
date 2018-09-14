@@ -70,39 +70,9 @@ class Utils:
             Log.debug("Parsing YAML...")
             return yaml.load(string, Loader=Loader) or dict()
         except yaml.YAMLError as e:
-            if hasattr(e, 'problem_mark'):
-                raise yaml.YAMLError(
-                    "YAML parsing error:\n{0}\n  {1}\n  {2}".format(e.context_mark, e.problem, e.problem_mark))
-            else:
-                raise yaml.YAMLError("YAML parsing error: {0}".format(str(e)))
-        except Exception as e:
+            raise yaml.YAMLError("YAML parsing error: {0}".format(e.problem))
+        except Exception:
             raise
-
-    @staticmethod
-    def format_error(heading, **kwargs):
-        """Formats an error for pretty cli output
-
-        Args:
-            heading (str): Error message heading
-            kwargs (dict): Key value pairs to be printed aligned
-
-        Returns:
-            str: THe formatted error message
-
-        """
-        indent = max([len(x) for x in kwargs.keys()]) + 2
-        row_format = '{:>' + str(indent) + '}: {}'
-        row_format_continuation = ' ' * (indent + 6) + '{}'
-
-        formatted_error = [heading]
-        for k, v in kwargs.items():
-            lines = v.splitlines()
-            formatted_error.append(row_format.format(
-                k.replace('_', ' ').title(), lines[0]))
-            for i in range(1, len(lines)):
-                formatted_error.append(row_format_continuation.format(lines[i]))
-
-        return '\n'.join(formatted_error)
 
     @staticmethod
     def hash(*args):
@@ -121,19 +91,28 @@ class Log(object):
     level = ERROR
 
     @staticmethod
-    def debug(msg):
+    def debug(msg, indent=0):
         if Log.level <= 10:
-            sys.stdout.write(msg + "\n")
+            sys.stdout.write(Log.indent_string(msg, indent) + "\n")
 
     @staticmethod
-    def info(msg):
+    def info(msg, indent=0):
         if Log.level <= 20:
-            sys.stdout.write(msg + "\n")
+            sys.stdout.write(Log.indent_string(msg, indent) + "\n")
 
     @staticmethod
-    def error(msg):
-        sys.stderr.write(msg + "\n")
+    def error(msg, indent=0):
+        sys.stderr.write(Log.indent_string(msg, indent) + "\n")
+        if Log.level <= 10:
+            traceback.print_exc(5)
 
+    @staticmethod
+    def indent_string(string, indent):
+        if indent > 0:
+            lines = string.splitlines()
+            return '\n'.join([' '*indent + l for l in string.splitlines()])
+        else:
+            return string
 
 class JinjaRenderer(object):
 
@@ -181,7 +160,7 @@ class JinjaRenderer(object):
         except jinja2.UndefinedError as e:
             raise jinja2.exceptions.UndefinedError('Variable {0}'.format(str(e.message)))
         except jinja2.TemplateError as e:
-            raise jinja2.exceptions.TemplateError('Template error: {0}'.format(str(e.message)))
+            raise jinja2.exceptions.TemplateError('Jinja template error: {0}'.format(str(e.message)))
         except Exception as e:
             raise e
 
@@ -299,32 +278,23 @@ class File(object):
         return os.path.exists(self.path)
 
     def read(self):
-        path = self.path
-
-        if self.cache and self.cache['path'] == path:
-            Log.debug("Return cached file '{0}'...".format(path))
+        if self.cache and self.cache['path'] == self.path:
+            Log.debug("Return cached file '{0}'...".format(self.path))
             return self.cache['content']
 
         else:
             self.cache = dict()
 
             if not self.exists():
-                raise FileNotFoundError(Utils.format_error(
-                    "Error reading file",
-                    description="File does not exist",
-                    path=path
-                ))
-            if not os.path.isfile(path):
-                raise IOError(Utils.format_error(
-                    "Error reading file",
-                    description="Is not a file",
-                    path=path
-                ))
-            Log.debug("Loading file '{0}'...".format(path))
-            with io.open(path, 'r', encoding='utf8') as f:
+                raise FileNotFoundError("File does not exist: '{0}'".format(self.path))
+            if not os.path.isfile(self.path):
+                raise IOError("Is not a file: '{0}".format(self.path))
+
+            Log.debug("Loading file '{0}'...".format(self.path))
+            with io.open(self.path, 'r', encoding='utf8') as f:
                 file_content = f.read()
 
-            self.cache['path'] = path
+            self.cache['path'] = self.path
             self.cache['content'] = file_content
             self.cache['hash'] = Utils.hash(file_content)
             return self.cache['content']
@@ -342,17 +312,9 @@ class File(object):
         if os.path.exists(path):
             if os.path.isfile(path):
                 if not force_overwrite:
-                    raise IOError(Utils.format_error(
-                        "Error writing file",
-                        description="Destination already exists. Use '-f' flag to overwrite the file",
-                        path=path
-                    ))
+                    raise IOError("Destination already exists. Use '-f' flag to overwrite the file: '{0}".format(path))
             else:
-                raise IOError(Utils.format_error(
-                    "Error writing file",
-                    description="Destination exists and is not a file",
-                    path=path
-                ))
+                raise IOError("Destination exists and is not a file: '{0}".format(path))
         else:
             # create dir
             if os.path.dirname(path):
@@ -368,7 +330,7 @@ class File(object):
         self.cache = None
         self.read()
         if old_hash != self.cache['hash']:
-            Log.debug("File '{}' changed".format(self.path))
+            Log.debug("File '{0}' changed".format(self.path))
             self.on_change_event()
 
     @classmethod
@@ -414,11 +376,7 @@ class ContextChainElement(object):
                     parent_context
                 )
             except Exception as e:
-                raise Exception(Utils.format_error(
-                    "Error loading variables from file",
-                    description=str(e),
-                    path=self.source.path
-                ))
+                raise Exception("Cannot load variables from '{0}': {1}".format(self.source.path, str(e)))
         elif type(self.source) == dict:
             try:
                 self.cache = JinjaRenderer.render_dict_and_add_to_context(
@@ -426,18 +384,18 @@ class ContextChainElement(object):
                     parent_context
                 )
             except Exception as e:
-                raise Exception(Utils.format_error(
-                    "Error loading variables",
-                    description=str(e),
-                    file_path=self.source['path']
-                ))
+                raise Exception("Cannot load variables from '{0}': {1}".format(self.source['path'], str(e)))
 
         self.cache_hash = Utils.hash(self.cache)
         return self.cache
 
     def _on_change(self, *args, **kwargs):
         old_hash = self.cache_hash
-        self._create_context()
+        try:
+            self._create_context()
+        except Exception as e:
+            Log.error("Faild to create context: {0}".format(str(e)))
+            raise
         if self.cache_hash != old_hash:
             self.on_change_event()
 
@@ -451,6 +409,7 @@ class ContextChain(object):
     def __init__(self, watch_changes=False):
         self.chain_elements = []
         self.watch_changes = watch_changes
+        self.on_change_event = Event()
 
     def add_context(self, context, origin_path):
         if context:
@@ -459,6 +418,7 @@ class ContextChain(object):
                 source={'path': origin_path, 'data': context},
                 prev=tail
             )
+            elm.on_change_event += self.on_change_event
             self.chain_elements.append(elm)
             if tail:
                 tail.next = elm
@@ -472,6 +432,7 @@ class ContextChain(object):
                 source=File.get_file(path, self.watch_changes),
                 prev=tail
             )
+            elm.on_change_event += self.on_change_event
             self.chain_elements.append(elm)
             if tail:
                 tail.next = elm
@@ -516,24 +477,26 @@ class Definition(object):
         self.changed_templates = list()
         self.failed_renders = list()
 
-    def parse(self):
+    def process(self):
+        Log.info("\nProcess Definition: '{0}'".format(self.file.path))
+        try:
+            self._parse()
+        except Exception as e:
+            Log.error("Error loading options from definition file: {0}".format(str(e)), 2)
+            return False
+
+        return self._render_templates()
+
+    def _parse(self):
         templates = dict()
         self.changed_templates = list()
 
         file_content = self.file.read()
+        file_content = Utils.load_yaml(file_content)
         file_path = self.file.path
 
-        try:
-            file_content = Utils.load_yaml(file_content)
-        except Exception as e:
-            raise Exception(Utils.format_error(
-                "Error loading options from definition file",
-                description=str(e),
-                path=file_path
-            ))
-
         if 'templates' not in file_content:
-            self._raise_value_error("Missing key 'templates' in template definition")
+            raise ValueError("Missing key 'templates' in template definition")
 
         global_options = self._parse_variable_options(file_content)
 
@@ -544,17 +507,17 @@ class Definition(object):
                 if type(t['src']) is str:
                     template_options['src'] = t['src']
                 else:
-                    self._raise_value_error("Value of 'src' must be of type string")
+                    raise ValueError("Value of 'src' must be of type string")
             else:
-                self._raise_value_error("Missing key 'src' in template definition")
+                raise ValueError("Missing key 'src' in template definition")
 
             if 'dest' in t:
                 if type(t['dest']) is str:
                     template_options['dest'] = t['dest']
                 else:
-                    self._raise_value_error("Value of 'dest' must be of type string")
+                    raise ValueError("Value of 'dest' must be of type string")
             else:
-                self._raise_value_error("Missing key 'dest' in template definition")
+                raise ValueError("Missing key 'dest' in template definition")
 
             thash = Utils.hash(global_options['include_vars'], global_options['vars'], template_options['include_vars'], template_options['vars'], template_options['src'], template_options['dest'])
 
@@ -595,7 +558,7 @@ class Definition(object):
             if type(options['vars']) is dict:
                 processed_options['vars'] = options['vars']
             else:
-                self._raise_value_error("Value of 'vars' must be of type dict")
+                raise ValueError("Value of 'vars' must be of type dict")
         else:
             processed_options['vars'] = dict()
 
@@ -605,30 +568,22 @@ class Definition(object):
             elif type(options['include_vars']) is str:
                 processed_options['include_vars'] = [options['include_vars']]
             else:
-                self._raise_value_error("Value of 'include_vars' must be of type list or string")
+                raise ValueError("Value of 'include_vars' must be of type list or string")
         else:
             processed_options['include_vars'] = []
 
         return processed_options
 
-    def render_templates(self):
+    def _render_templates(self):
+        all_renders_successfull = True
         for thash in self.changed_templates:
             t = self.templates[thash]
-            try:
-                t.render()
-            except Exception as e:
-                self.failed_renders.append(t.file.path)
+            if not t.render():
+                all_renders_successfull = False
+        return all_renders_successfull
 
     def _on_change(self, *args, **kwargs):
-        self.parse()
-        self.render_templates()
-
-    def _raise_value_error(self, description):
-        raise ValueError(Utils.format_error(
-            "Error loading options from definition file",
-            description=description,
-            path=self.definition_file.path
-        ))
+        self.process()
 
 
 class Template(object):
@@ -652,6 +607,7 @@ class Template(object):
 
         self._file = File.get_file(self._create_path(self.src), self.watch_changes)
         self._file.on_change_event += self.render
+        self.context.on_change_event += self.render
 
     def remove(self):
         self.context.remove()
@@ -668,31 +624,31 @@ class Template(object):
             self._file.on_change_event += self.render
             return self._file
 
-    def _create_path(self, path):
+    def _create_path(self, path, absolute=True):
         path = JinjaRenderer.render_string(path, self.context.get_context())
-        if os.path.isabs(path):
-            return path
-        else:
+        if absolute and not os.path.isabs(path):
             return os.path.join(self.relative_path, path)
+        else:
+            return path
 
     def render(self):
         """Renders the template file with jinja2"""
-
-        file_content = self.file.read()
-        file_path = self._file.path
+        src_rel = self.src
+        dest_rel = self.dest
 
         try:
-            Log.debug("Rendering template file...")
+            try:
+                src_rel = self._create_path(self.src, False)
+                dest_rel = self._create_path(self.dest, False)
+            finally:
+                Log.info("Render template: '{0}' --> '{1}'".format(src_rel, dest_rel))
+
+            file_content = self.file.read()
+
+            # render the template with Jinja
             rendered_file_content = JinjaRenderer.render_string(file_content, self.context.get_context())
-        except Exception as e:
-            raise Exception(Utils.format_error(
-                "Error while rendering template",
-                description=str(e),
-                path=file_path
-            ))
 
-        # remove values containing an omit placeholder
-        try:
+            # remove values containing an omit placeholder
             processed_content = yaml.dump(
                 JinjaRenderer.remove_omit_from_dict(
                     Utils.load_yaml(rendered_file_content, Loader=yaml.RoundTripLoader)
@@ -703,56 +659,33 @@ class Template(object):
                 default_flow_style=False,
                 Dumper=yaml.RoundTripDumper
             )
-        except Exception as e:
-            raise Exception(Utils.format_error(
-                "Error while rendering template",
-                description=str(e),
-                path=file_path
-            )).with_traceback(e.__traceback__)
 
-        # Write rendered file
-        dest_path = self._create_path(self.dest)
-        self.file.write(
-            content=processed_content,
-            path=dest_path,
-            force_overwrite=self.force_overwrite
-        )
-        Log.info("Created file '{0}'".format(dest_path))
+            # write the rendered content into a file
+            dest_path = self._create_path(self.dest)
+            self.file.write(
+                content=processed_content,
+                path=dest_path,
+                force_overwrite=self.force_overwrite
+            )
+
+            return True
+
+        except Exception as e:
+            Log.error("Error while rendering template: {0}".format(str(e)), 2)
+            return False
 
 
 class AutoRenderer(object):
 
-    def __init__(self, definitions, force_overwrite):
+    def __init__(self, definitions):
         self.definitions = definitions
-        self.force_overwrite = force_overwrite
-
-    class RenderHandler(pyinotify.ProcessEvent):
-
-        def __init__(self, template_file):
-            self.template_file = template_file
-
-        def process_IN_CREATE(self, event):
-            self.render()
-
-        def process_IN_MODIFY(self, event):
-            self.render()
-
-        def render(self):
-            try:
-                self.template_file.render()
-            except Exception as e:
-                Log.error(str(e))
 
     def start(self):
-        Log.info("Starting Auto Renderer...")
+        Log.info("Auto renderer started")
 
         # render on start
         for d in self.definitions:
-            try:
-                d.parse()
-                d.render_templates()
-            except:
-                pass
+            d.process()
 
         Log.debug("Listening for file changes...")
 
@@ -766,12 +699,13 @@ class AutoRenderer(object):
                             notifier.process_events()
                     except KeyboardInterrupt:
                         raise
+                    except Exception:
                         break
                 time.sleep(0.1)
             except KeyboardInterrupt:
                 break
 
-        Log.info("Auto Renderer stopped")
+        Log.info("\nAuto renderer stopped")
 
 
 def cli():
@@ -799,51 +733,31 @@ def cli():
     levels = [Log.ERROR, Log.INFO, Log.DEBUG]
     Log.level = levels[min(len(levels) - 1, args.verbose + 1)]
 
-    try:
-        definitions = [
-            Definition(
-                path=path,
-                force_overwrite=args.force_overwrite,
-                watch_changes=args.auto_render
-            ) for path in args.definition_files
-        ]
-        for d in definitions:
-            if not d.file.exists():
-                raise FileNotFoundError(Utils.format_error(
-                    "Definition file does not exist",
-                    path=d.file.path
-                ))
+    definitions = [
+        Definition(
+            path=path,
+            force_overwrite=args.force_overwrite,
+            watch_changes=args.auto_render
+        ) for path in args.definition_files
+    ]
+    for d in definitions:
+        if not d.file.exists():
+            Log.error("Definition file does not exist: '{0}'".format(d.file.path))
+            exit(1)
 
-        if not args.auto_render:
-            # parse definition files
-            for df in definitions:
-                df.parse()
+    if args.auto_render:
+        ar = AutoRenderer(definitions)
+        ar.start()
 
-            # render templates
-            render_failed = False
-            for df in definitions:
-                df.render_templates()
+    else:
+        some_renders_failed = False
+        # process definition files
+        for df in definitions:
+            if not df.process():
+                some_renders_failed = True
 
-            failed_renders = list()
-            for df in definitions:
-                failed_renders += df.failed_renders
-
-            if failed_renders:
-                Log.error("Some renders failed:")
-                for fr in failed_renders:
-                    Log.error("  " + fr)
-                    exit(1)
-
-        else:
-            ar = AutoRenderer(definitions, args.force_overwrite)
-            ar.start()
-
-    except Exception as e:
-        # catch errors and print to stderr
-        if args.verbose >= 2:
-            Log.error(traceback.format_exc())
-        else:
-            Log.error(str(e))
-        exit(1)
+        if some_renders_failed:
+            Log.error("\nSome renders failed")
+            exit(1)
 
     exit(0)
