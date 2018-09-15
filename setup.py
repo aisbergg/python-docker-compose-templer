@@ -42,6 +42,7 @@ setup(
     },
     install_requires=[
         'jinja2',
+        'pyinotify',
         'ruamel.yaml',
     ],
     include_package_data=True,

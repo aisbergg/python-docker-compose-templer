@@ -1,3 +1,4 @@
 jinja2
+pyinotify
 ruamel.yaml
 setuptools
