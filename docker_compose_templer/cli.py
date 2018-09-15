@@ -958,7 +958,8 @@ def cli():
         description='Render Docker Compose file templates with the power of Jinja2',
         add_help=False)
     parser.add_argument('-a', '--auto-render', dest='auto_render',
-                        action='store_true', default=False, help="Automatically render templates when a file changed")
+                        action='store_true', default=False,
+                        help="Monitor file changes and render templates automatically")
     parser.add_argument('-f', '--force', dest='force_overwrite',
                         action='store_true', default=False, help="Overwrite existing files")
     parser.add_argument("-h", "--help", action="help",
@@ -966,7 +967,7 @@ def cli():
     parser.add_argument('-v', '--verbose', dest='verbose', action='count',
                         default=0, help="Enable verbose mode")
     parser.add_argument('--version', action='version', version='Templer {0}, Jinja2 {1}'.format(
-        __version__, jinja2.__version__), help="Prints the program version and quits")
+        __version__, jinja2.__version__), help="Print the program version and quit")
     parser.add_argument('definition_files', nargs='+',
                         help="File that defines what to do.")
     args = parser.parse_args(sys.argv[1:])
