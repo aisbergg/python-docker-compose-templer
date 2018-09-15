@@ -2,7 +2,7 @@
 
 __author__ = "Andre Lehmann"
 __email__ = "aisberg@posteo.de"
-__version__ = '0.1.1'
+__version__ = '1.0.0'
 
 from docker_compose_templer.cli import cli
 

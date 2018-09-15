@@ -1,15 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from setuptools import setup, find_packages
 from os import path
+
+from setuptools import setup, find_packages
 
 with open(path.join(path.abspath(path.dirname(__file__)), 'README.md')) as f:
     long_description = f.read()
 
 setup(
     name='Docker Compose Templer',
-    version='0.1.0',
+    version='1.0.0',
     author='Andre Lehmann',
     author_email='aisberg@posteo.de',
     url='https://github.com/Aisbergg/python-docker-compose-templer',
@@ -33,7 +34,7 @@ setup(
         'Bug Reports': 'https://github.com/Aisbergg/python-docker-compose-templer/issues',
         'Source': 'https://github.com/Aisbergg/python-docker-compose-templer',
     },
-    packages=find_packages(exclude=['examples']),
+    packages=find_packages(exclude=['examples', 'tests']),
     entry_points={
         'console_scripts': [
             'docker_compose_templer = docker_compose_templer:cli',
