@@ -161,7 +161,7 @@ class JinjaRenderer(object):
         try:
             # evaluate to int, float, list, dict
             return literal_eval(string.strip())
-        except ValueError as e:
+        except (ValueError, SyntaxError) as e:
             try:
                 # evaluate bool from different variations
                 return bool(strtobool(string.strip()))
