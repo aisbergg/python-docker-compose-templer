@@ -30,12 +30,11 @@ class Utils:
         When keys exist in both the value of 'y' is used.
 
         Args:
-            x (dict): 
+            x (dict): First dict
             y (dict): Second dict
 
         Returns:
-            dict: 
-
+            dict: The merged dict
         """
         if x is None and y is None:
             return dict()
@@ -54,7 +53,7 @@ class Utils:
 
     @staticmethod
     def load_yaml(string, Loader=yaml.CSafeLoader):
-        """Parse a YAML string and produce the corresponding Python object.
+        """Parses a YAML string and produce the corresponding Python object.
 
         Args:
             string (str): The input string to be parsed
@@ -76,6 +75,14 @@ class Utils:
 
     @staticmethod
     def hash(*args):
+        """Creates a single sha1 hash value of the given objects.
+
+        Args:
+            *args: The objects to be hashed
+
+        Returns:
+            str: sha1 hash of all objects given
+        """
         hash = ''
         for string in args:
             hash = sha1((hash + str(string)).encode()).hexdigest()
@@ -83,7 +90,7 @@ class Utils:
 
 
 class Log(object):
-    """Stupid logger that writes messages to stdout or stderr accordingly"""
+    """Stupid logger that writes messages to stdout or stderr accordingly."""
 
     ERROR = 30
     INFO = 20
@@ -108,13 +115,30 @@ class Log(object):
 
     @staticmethod
     def indent_string(string, indent):
+        """Adds indentation to a string.
+
+        Args:
+            string (str): String to be indented
+            indent (int): Number of spaces to indent the string
+
+        Returns:
+            str: The indented string.
+        """
         if indent > 0:
             lines = string.splitlines()
-            return '\n'.join([' '*indent + l for l in string.splitlines()])
+            return '\n'.join([' ' * indent + l for l in string.splitlines()])
         else:
             return string
 
+
 class JinjaRenderer(object):
+    """Supplies functions to render templates with Jinja.
+
+    Attributes:
+        omit_placeholder (str): The omit placeholder used for removing keys from a dict/yaml
+        env: The jinja environment used to render strings
+
+    """
 
     omit_placeholder = '__omit_place_holder__%s' % sha1(os.urandom(64)).hexdigest()
     env = jinja2.Environment(
@@ -137,19 +161,34 @@ class JinjaRenderer(object):
         try:
             # evaluate to int, float, list, dict
             return literal_eval(string.strip())
-        except Exception as e:
+        except ValueError as e:
             try:
                 # evaluate bool from different variations
                 return bool(strtobool(string.strip()))
-            except Exception as e:
+            except ValueError as e:
                 # string cannot be evaluated -> return string
                 return string
 
     class Omit(object):
+        """Represents a omit object"""
         pass
 
     @classmethod
     def render_string(cls, template_string, context):
+        """Renders a template string with Jinja.
+
+        Args:
+            template_string (str): The template string to be rendered
+            context (dict): The context used for rendering
+
+        Returns:
+            str: The rendered string
+
+        Raises:
+            jinja_filter.MandatoryError: If a variable is undefined and the mandatory filter was used
+            jinja2.UndefinedError: If a variable is undefined
+            jinja2.TemplateError: If the template contains an invalid syntax
+        """
         # add omit variable to context
         context['omit'] = JinjaRenderer.omit_placeholder
 
@@ -158,23 +197,49 @@ class JinjaRenderer(object):
         except jinja_filter.MandatoryError as e:
             raise e
         except jinja2.UndefinedError as e:
-            raise jinja2.exceptions.UndefinedError('Variable {0}'.format(str(e.message)))
+            raise jinja2.UndefinedError('Variable {0}'.format(str(e.message)))
         except jinja2.TemplateError as e:
-            raise jinja2.exceptions.TemplateError('Jinja template error: {0}'.format(str(e.message)))
-        except Exception as e:
-            raise e
+            raise jinja2.TemplateError('Jinja template error: {0}'.format(str(e.message)))
 
     @classmethod
     def render_dict_and_add_to_context(cls, the_dict, context):
+        """Renders a dict and adds it to the context.
+
+        Args:
+            the_dict (dict): The dict to be rendered
+            context (dict): The context that is used for rendering
+
+        Returns:
+            dict: The context that contains also the variables from the_dict
+
+        Raises:
+            jinja_filter.MandatoryError: If a variable is undefined and the mandatory filter was used
+            jinja2.UndefinedError: If a variable is undefined
+            jinja2.TemplateError: If the template contains an invalid syntax
+        """
         new_context = deepcopy(context)
         for k, v in the_dict.items():
-            processed_value = cls._render_dict(v, new_context)
+            processed_value = cls._render_recursively(v, new_context)
             if type(processed_value) is not JinjaRenderer.Omit:
                 new_context = Utils.merge_dicts(new_context, {k: processed_value})
         return new_context
 
     @classmethod
-    def _render_dict(cls, value, context):
+    def _render_recursively(cls, value, context):
+        """Renders a value recursively.
+
+        Args:
+            value: Value to be rendered
+            context: The context used for rendering
+
+        Returns:
+            Value that has been rendered with Jinja
+
+        Raises:
+            jinja_filter.MandatoryError: If a variable is undefined and the mandatory filter was used
+            jinja2.UndefinedError: If a variable is undefined
+            jinja2.TemplateError: If the template contains an invalid syntax
+        """
         if value is None:
             return None
 
@@ -193,7 +258,7 @@ class JinjaRenderer(object):
         elif type(value) is list:
             new_list = []
             for li in value:
-                processed_item = cls._render_dict(li, context)
+                processed_item = cls._render_recursively(li, context)
                 if type(processed_item) is not JinjaRenderer.Omit:
                     new_list.append(processed_item)
             return new_list
@@ -202,7 +267,7 @@ class JinjaRenderer(object):
         elif type(value) is dict:
             new_dict = dict()
             for k, v in value.items():
-                processed_value = cls._render_dict(v, context)
+                processed_value = cls._render_recursively(v, context)
                 if type(processed_value) is not JinjaRenderer.Omit:
                     new_dict[k] = processed_value
             return new_dict
@@ -213,6 +278,14 @@ class JinjaRenderer(object):
 
     @classmethod
     def remove_omit_from_dict(cls, value):
+        """Parses a YAML string and produce the corresponding Python object.
+
+        Args:
+            value: The value from which all occurrences of omit shall be removed
+
+        Returns:
+            dict: The processed dict
+        """
         if value is None:
             return None
 
@@ -245,39 +318,61 @@ class JinjaRenderer(object):
 
 
 class File(object):
+    """Represents a file.
+
+    The class implements file caching and a file watching functionality. File changes will dispatch all events that are
+    listed in on_change_event.
+
+    Args:
+        path (str): The path of the file.
+        watch_changes (bool): If true the file shall be watched for relevant changes.
+
+    Attributes:
+        files (dict): All loaded files stored with their path as the key
+        path (str): The path of the file
+        on_change_event (Event): List of subscribed events
+        notifier (pyinotify.Notifier): Underlying file change listener
+
+    """
     files = dict()
 
     def __init__(self, path, watch_changes=False):
-        self._path = path
+        self.path = path
 
         self.cache = None
         self.on_change_event = Event()
         self.notifier = None
         if watch_changes:
             mask = pyinotify.IN_CREATE | pyinotify.IN_MODIFY
-            self.wm = pyinotify.WatchManager()
-            self.wm.add_watch(self.path, mask, rec=False)
+            wm = pyinotify.WatchManager()
+            wm.add_watch(self.path, mask, rec=False)
             self.notifier = pyinotify.Notifier(self.wm, self._on_change, timeout=10)
 
     def __del__(self):
         self.remove()
 
     def remove(self):
+        """Stop listening to file changes."""
         if self.notifier:
             self.notifier.stop()
 
-    @property
-    def path(self):
-        return self._path
-
-    @path.setter
-    def path(self, path):
-        self._path = path
-
     def exists(self):
+        """Returns true if the file exists in the filesystem."""
         return os.path.exists(self.path)
 
     def read(self):
+        """Reads the files content.
+
+        The file content will cached. Consecutive reads will yield the cache content so the file doesn't have to be read
+        twice.
+
+        Returns:
+            str: The content of the file.
+
+        Raises:
+            FileNotFoundError: If the file could not be found under the path
+            IOError: If the given path does not contain a file
+        """
         if self.cache and self.cache['path'] == self.path:
             Log.debug("Return cached file '{0}'...".format(self.path))
             return self.cache['content']
@@ -301,10 +396,12 @@ class File(object):
 
     @staticmethod
     def write(content, path, force_overwrite=False):
-        """Writes the given content into the file
+        """Writes the content into a file with the given path.
 
         Args:
             content (str): Content to write into the file
+            path (str): Path where the content shall be written to
+            force_overwrite (bool): If true any existing file will be overwritten
 
         Raises:
             IOError: If desired output file exists or is not a file
@@ -326,6 +423,7 @@ class File(object):
             f.write(content)
 
     def _on_change(self, *args, **kwargs):
+        """Gets executed on change event."""
         old_hash = self.cache['hash']
         self.cache = None
         self.read()
@@ -335,12 +433,25 @@ class File(object):
 
     @classmethod
     def get_file(cls, path, watch_changes=False):
+        """Returns a file with the given path.
+
+        If the file with the given path is already loaded into memory it will be returned instead of creating a new
+        instance.
+
+        Args:
+            path: Path of the file
+            watch_changes: Tell the file to watch for changes
+
+        Returns:
+            File: An instance of File with the given path
+        """
         if path not in cls.files:
             cls.files[path] = cls(path, watch_changes)
         return cls.files[path]
 
     @classmethod
     def cleanup_unused_files(cls):
+        """Removes loaded files from memory that aren't used anymore."""
         for k in list(cls.files.keys()):
             if len(cls.files[k].on_change_event) == 0:
                 cls.files[k].remove()
@@ -348,6 +459,19 @@ class File(object):
 
 
 class ContextChainElement(object):
+    """Represents a context chain element that is part of a ContextChain.
+
+    Args:
+        source (dict or File): Source of the context can either be a File or a dict
+        prev (ContextChainElement): Previous element in the chain
+    Attributes:
+        prev (ContextChainElement): Previous element in the chain
+        next (ContextChainElement): Next element in the chain
+        source (dict or File): Source of the context can either be a File or a dict
+        cache (dict): Ready processed and cached context
+        cache_hash (str): SHA1 hash of the cache to check for changes
+        on_change_event (Event): Events that get dispatched on a change
+    """
 
     def __init__(self, source, prev=None):
         self.prev = prev
@@ -361,12 +485,29 @@ class ContextChainElement(object):
             self.source.on_change_event += self._on_change
 
     def get_context(self):
+        """Returns the composed context up to this chain element.
+
+        If the context was already created earlier and cached, then the cache will be returned.
+
+        Returns:
+            dict: The composed context
+        Raises:
+            Exception: If the variables cannot be loaded for some reasons
+        """
         if self.cache is not None:
             return self.cache
         else:
             return self._create_context()
 
     def _create_context(self):
+        """Creates the context by rendering the context's source with Jinja and merging it with the contexts of previous
+        elements in the chain.
+
+        Returns:
+            dict: The composed context
+        Raises:
+            Exception: If the variables cannot be loaded for some reasons
+        """
         parent_context = self.prev.get_context() if self.prev else dict()
         if type(self.source) == File:
             file_content = self.source.read()
@@ -390,6 +531,7 @@ class ContextChainElement(object):
         return self.cache
 
     def _on_change(self, *args, **kwargs):
+        """Gets executed on a change event."""
         old_hash = self.cache_hash
         try:
             self._create_context()
@@ -400,11 +542,21 @@ class ContextChainElement(object):
             self.on_change_event()
 
     def remove(self):
+        """Stops listening for file changes."""
         if type(self.source) == File:
             self.source.on_change_event -= self._on_change
 
 
 class ContextChain(object):
+    """Represents a context that is composed of multiple ContextChainElements.
+
+    Args:
+        watch_changes (bool): Enable watching for file changes
+    Attributes:
+        chain_elements (list): The elements of the chain
+        watch_changes (bool): Enable watching for file changes
+        on_change_event (Event): Events that get dispatched on a file change
+    """
 
     def __init__(self, watch_changes=False):
         self.chain_elements = []
@@ -412,6 +564,12 @@ class ContextChain(object):
         self.on_change_event = Event()
 
     def add_context(self, context, origin_path):
+        """Adds a context to the chain.
+
+        Args:
+            context (dict): The (unprocessed) context to add
+            origin_path (str): The file path where the context originated (used for logging)
+        """
         if context:
             tail = self.chain_elements[-1] if self.chain_elements else None
             elm = ContextChainElement(
@@ -424,6 +582,12 @@ class ContextChain(object):
                 tail.next = elm
 
     def add_files(self, files, relative_path):
+        """Adds a list of YAML files to the context chain.
+
+        Args:
+            files (list): Paths of YAML files to add
+            relative_path: Relative path to look for the files
+        """
         for path in files:
             if not os.path.isabs(path):
                 path = os.path.join(relative_path, path)
@@ -438,34 +602,50 @@ class ContextChain(object):
                 tail.next = elm
 
     def get_context(self):
+        """Returns the composed context."""
         return self.chain_elements[-1].get_context()
 
     def remove(self):
+        """Stops listening for changes."""
         for ce in self.chain_elements:
             ce.remove()
         self.chain_elements = None
 
 
 class Event(list):
-    """Event subscription.
-
-    """
+    """Represent an subscribable event."""
 
     def __iadd__(self, handler):
+        """Adds a handler to the subscribe list."""
         self.append(handler)
         return self
 
     def __isub__(self, handler):
+        """Removes a handler from the subscribe list."""
         if handler in self:
             self.remove(handler)
         return self
 
     def __call__(self, *args, **kwargs):
+        """Executes the stored handlers"""
         for f in self:
             f(*args, **kwargs)
 
 
 class Definition(object):
+    """Resembles a definition file.
+
+    Args:
+        path (str): Path of the definition file
+        force_overwrite (str): Force overwriting of existing files
+        watch_changes (bool): Enable watching for file changes
+    Attributes:
+        force_overwrite (str): Force overwriting of existing files
+        watch_changes (bool): Enable watching for file changes
+        file (File): The definition file
+        templates (dict): The loaded templates (SHA1 hashes are used as keys)
+        changed_templates (list): List of templates that changed (only in auto render mode)
+    """
 
     def __init__(self, path, force_overwrite=True, watch_changes=False):
         self.force_overwrite = force_overwrite
@@ -475,9 +655,15 @@ class Definition(object):
         self.file.on_change_event += self._on_change
         self.templates = dict()
         self.changed_templates = list()
-        self.failed_renders = list()
 
     def process(self):
+        """Process the definition.
+
+        Parses the definition file, loads the external context from YAML files and renders the defined templates.
+
+        Returns:
+            bool: True if the processing finished without errors else False
+        """
         Log.info("\nProcess Definition: '{0}'".format(self.file.path))
         try:
             self._parse()
@@ -488,6 +674,14 @@ class Definition(object):
         return self._render_templates()
 
     def _parse(self):
+        """Parses the definition file.
+
+        Raises:
+            FileNotFoundError: If the file could not be found under the path
+            IOError: If the given path does not contain a file
+            yaml.YAMLError: If the YAML string is malformed
+            ValueError: If the syntax of the definition file is wrong
+        """
         templates = dict()
         self.changed_templates = list()
 
@@ -519,7 +713,8 @@ class Definition(object):
             else:
                 raise ValueError("Missing key 'dest' in template definition")
 
-            thash = Utils.hash(global_options['include_vars'], global_options['vars'], template_options['include_vars'], template_options['vars'], template_options['src'], template_options['dest'])
+            thash = Utils.hash(global_options['include_vars'], global_options['vars'], template_options['include_vars'],
+                               template_options['vars'], template_options['src'], template_options['dest'])
 
             # reuse previous parsed templates (only in Auto Renderer mode)
             if thash in self.templates:
@@ -552,6 +747,14 @@ class Definition(object):
         self.templates = templates
 
     def _parse_variable_options(self, options):
+        """Parses common options and sets defaults.
+
+        Args:
+            options: Options that need to be parsed
+
+        Returns:
+            dict: The parsed options
+        """
         processed_options = dict()
 
         if 'vars' in options:
@@ -575,6 +778,11 @@ class Definition(object):
         return processed_options
 
     def _render_templates(self):
+        """Renders the loaded templates.
+
+        Returns:
+            bool: True if the processing finished without errors else False
+        """
         all_renders_successfull = True
         for thash in self.changed_templates:
             t = self.templates[thash]
@@ -583,17 +791,26 @@ class Definition(object):
         return all_renders_successfull
 
     def _on_change(self, *args, **kwargs):
+        """Gets executed on change event."""
         self.process()
 
 
 class Template(object):
-    """ Represents a template file to be rendered with jinja2
+    """Represents a template file to be rendered with jinja2
 
     Args:
         src (str): Path to template file
         dest (str): Path for rendered file
         context (dict): Jinja2 context
-        force_overwrite (bool): Overwrite existing file
+        force_overwrite (bool): Force overwrite of an existing file
+        watch_changes (bool): Enable watching for file changes
+    Attributes:
+        src (str): Path to template file
+        dest (str): Path for rendered file
+        context (dict): Jinja2 context
+        force_overwrite (bool): Force overwrite of an existing file
+        watch_changes (bool): Enable watching for file changes
+        _file (File): The template file
 
     """
 
@@ -610,11 +827,15 @@ class Template(object):
         self.context.on_change_event += self.render
 
     def remove(self):
+        """Stop listening for changes."""
         self.context.remove()
         self._file.on_change_event -= self.render
 
     @property
     def file(self):
+        """Returns the template file as File object"""
+        # the path might change depending on the context used --> render src path and compare it to previous used path.
+        # If it changed then a new file will be returned
         path = self._create_path(self.src)
         if self._file.path == path:
             return self._file
@@ -625,6 +846,15 @@ class Template(object):
             return self._file
 
     def _create_path(self, path, absolute=True):
+        """Renders the given path with Jinja and returns the result.
+
+        Args:
+            path: The path to be rendered
+            absolute: If true the returned path will be an absolute one
+
+        Returns:
+            str: The rendered path
+        """
         path = JinjaRenderer.render_string(path, self.context.get_context())
         if absolute and not os.path.isabs(path):
             return os.path.join(self.relative_path, path)
@@ -632,7 +862,11 @@ class Template(object):
             return path
 
     def render(self):
-        """Renders the template file with jinja2"""
+        """Renders the template file with Jinja and writes the output to the destination.
+
+        Returns:
+            bool: True if the processing finished without errors else false
+        """
         src_rel = self.src
         dest_rel = self.dest
 
@@ -676,11 +910,19 @@ class Template(object):
 
 
 class AutoRenderer(object):
+    """The Auto Renderer periodically checks for file changes and dispatches any subscribed events.
+
+    Args:
+        definitions (Definition): The definitions
+    Attributes:
+        definitions (Definition): The definitions
+    """
 
     def __init__(self, definitions):
         self.definitions = definitions
 
     def start(self):
+        """Starts the Auto Renderer."""
         Log.info("Auto renderer started")
 
         # render on start
@@ -690,7 +932,7 @@ class AutoRenderer(object):
         Log.debug("Listening for file changes...")
 
         # start file change listener
-        while(True):
+        while (True):
             try:
                 for notifier in [f.notifier for _, f in File.files.items()]:
                     try:
@@ -709,8 +951,8 @@ class AutoRenderer(object):
 
 
 def cli():
-    """ CLI entry point """
-    # parsing arguments
+    """The CLI entry point."""
+    # parse arguments
     parser = argparse.ArgumentParser(
         prog='docker_compose_templer',
         description='Render Docker Compose file templates with the power of Jinja2',
