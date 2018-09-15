@@ -346,7 +346,7 @@ class File(object):
             mask = pyinotify.IN_CREATE | pyinotify.IN_MODIFY
             wm = pyinotify.WatchManager()
             wm.add_watch(self.path, mask, rec=False)
-            self.notifier = pyinotify.Notifier(self.wm, self._on_change, timeout=10)
+            self.notifier = pyinotify.Notifier(wm, self._on_change, timeout=10)
 
     def __del__(self):
         self.remove()
