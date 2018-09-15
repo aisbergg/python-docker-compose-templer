@@ -197,7 +197,7 @@ class JinjaRenderer(object):
         except jinja_filter.MandatoryError as e:
             raise e
         except jinja2.UndefinedError as e:
-            raise jinja2.UndefinedError('Variable {0}'.format(str(e.message)))
+            raise jinja2.UndefinedError('Undefined variable: {0}'.format(str(e.message)))
         except jinja2.TemplateError as e:
             raise jinja2.TemplateError('Jinja template error: {0}'.format(str(e.message)))
 
