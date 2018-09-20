@@ -929,7 +929,7 @@ class AutoRenderer(object):
         for d in self.definitions:
             d.process()
 
-        Log.debug("Listening for file changes...")
+        Log.info("\nWaiting for changes...")
 
         # start file change listener
         while (True):
@@ -943,7 +943,7 @@ class AutoRenderer(object):
                         raise
                     except Exception:
                         break
-                time.sleep(0.1)
+                time.sleep(0.3)
             except KeyboardInterrupt:
                 break
 
