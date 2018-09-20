@@ -968,7 +968,7 @@ def cli():
                         default=0, help="Enable verbose mode")
     parser.add_argument('--version', action='version', version='Templer {0}, Jinja2 {1}'.format(
         __version__, jinja2.__version__), help="Print the program version and quit")
-    parser.add_argument('definition_files', nargs='+',
+    parser.add_argument('definition_file', nargs='+',
                         help="File that defines what to do.")
     args = parser.parse_args(sys.argv[1:])
 
@@ -981,7 +981,7 @@ def cli():
             path=path,
             force_overwrite=args.force_overwrite,
             watch_changes=args.auto_render
-        ) for path in args.definition_files
+        ) for path in args.definition_file
     ]
     for d in definitions:
         if not d.file.exists():
