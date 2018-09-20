@@ -123,6 +123,7 @@ filters = {
     'regex_replace': regex_replace,
     'regex_search': regex_search,
     'regex_contains': regex_contains,
+    'to_bool': to_bool,
     'to_yaml': to_yaml,
     'to_json': to_json,
     'to_nice_json': to_nice_json,
