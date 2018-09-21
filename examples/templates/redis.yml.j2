@@ -1,0 +1,56 @@
+version: '3.7'
+
+services:
+  {{ deployment_name|default('redis') }}:
+    image: aisberg/redis:4.0.11
+    environment:
+      - "REDIS_LOGLEVEL={{ REDIS_LOGLEVEL|default(omit) }}"
+      - "REDIS_DATABASES={{ REDIS_DATABASES|default(4) }}"
+      - "REDIS_REQUIREPASS={{ REDIS_REQUIREPASS|default(omit) }}"
+      - "REDIS_MAXCLIENTS={{ REDIS_MAXCLIENTS|default(1000) }}"
+      - "REDIS_MAXMEMORY={{ REDIS_MAXMEMORY|default('300MB') }}"
+    {% if secrets is defined %}
+    secrets:
+    {% for secret in secrets %}
+      - source: {{ secret.source }}
+        target:  {{ secret.target }}
+        uid: '999'
+        gid: '0'
+        mode: 0400
+    {% endfor %}
+    {% endif %}
+    networks:
+      redis:
+        aliases:
+          - redis
+          - {{ deployment_name|default('redis') }}.{{ stack_name }}.docker
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
+      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('redis') }}/redis:/container/redis"
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: "{{ REDIS_MAXMEMORY|default('300MB') }}"
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+networks:
+  redis:
+    name: {{ stack_name }}_{{ deployment_name|default('redis') }}
+    driver: overlay
+    attachable: true
+
+{% if secrets is defined %}
+secrets:
+{% for secret in secrets %}
+  {{ secret.source }}:
+    external: true true
+{% endfor %}
+{% endif %}

@@ -1,0 +1,111 @@
+version: '3.7'
+
+services:
+  {{ deployment_name|default('nextcloud') }}:
+    image: aisberg/nextcloud:14.0.0
+    environment:
+      - "DOMAINNAMES={{ domainnames|default(omit) }}"
+
+      - "NGINX_WORKER_PROCESSES={{ NGINX_WORKER_PROCESSES|default(omit) }}"
+      - "NGINX_WORKER_CONNECTIONS={{ NGINX_WORKER_CONNECTIONS|default(omit) }}"
+      - "NGINX_WORKER_OPENED_FILES={{ NGINX_WORKER_OPENED_FILES|default(omit) }}"
+      - "NGINX_MULTI_ACCEPT={{ NGINX_MULTI_ACCEPT|default(omit) }}"
+      - "MAX_UPLOAD_FILESIZE={{ MAX_UPLOAD_FILESIZE|default('16384M') }}"
+      - "NGINX_BEHIND_PROXY=True"
+      - "NGINX_TLS_TERMINATED=True"
+      - "NGINX_REWRITE_HTTPS=True"
+      - "NGINX_REDIRECT_TO_FIRST_DOMAIN={{ NGINX_REDIRECT_TO_FIRST_DOMAIN|default(False) }}"
+      - "NGINX_FASTCGI_READ_TIMEOUT={{ NGINX_FASTCGI_READ_TIMEOUT|default(3600) }}"
+
+      - "PHP_FPM_MAX_CHILDREN={{ PHP_FPM_MAX_CHILDREN|default(omit) }}"
+      - "PHP_FPM_MIN_SPARE_SERVERS={{ PHP_FPM_MIN_SPARE_SERVERS|default(omit) }}"
+      - "PHP_FPM_MAX_SPARE_SERVERS={{ PHP_FPM_MAX_SPARE_SERVERS|default(omit) }}"
+      - "PHP_MAX_EXECUTION_TIME={{ PHP_MAX_EXECUTION_TIME|default(3600) }}"
+      - "PHP_MAX_INPUT_TIME={{ PHP_MAX_INPUT_TIME|default(3600) }}"
+      - "PHP_MEMORY_LIMIT={{ PHP_MEMORY_LIMIT|default(omit) }}"
+      - "PHP_MAX_FILE_UPLOADS={{ PHP_MAX_FILE_UPLOADS|default(omit) }}"
+
+      - "AUTO_UPDATE={{ AUTO_UPDATE|default(true) }}"
+      - "NEXTCLOUD_DEFAULT_LANGUAGE=de_DE"
+      - "NEXTCLOUD_DEFAULT_LOCALE=de_DE"
+      - "NEXTCLOUD_DATABASE_TYPE={{ NEXTCLOUD_DATABASE_TYPE|default('mysql') }}"
+      - "NEXTCLOUD_DATABASE_HOST={{ NEXTCLOUD_DATABASE_HOST|mandatory('NEXTCLOUD_DATABASE_HOST must be defined') }}"
+      - "NEXTCLOUD_DATABASE_NAME={{ NEXTCLOUD_DATABASE_NAME|mandatory('NEXTCLOUD_DATABASE_NAME must be defined') }}"
+      - "NEXTCLOUD_DATABASE_USER={{ NEXTCLOUD_DATABASE_USER|mandatory('NEXTCLOUD_DATABASE_USER must be defined') }}"
+      - "NEXTCLOUD_DATABASE_PASSWORD={{ NEXTCLOUD_DATABASE_PASSWORD|default(omit) }}"
+      - "NEXTCLOUD_TRASHBIN_RETENTION_OBLIGATION={{ NEXTCLOUD_TRASHBIN_RETENTION_OBLIGATION|default('auto, 20') }}"
+      - "NEXTCLOUD_VERSIONS_RETENTION_OBLIGATION={{ NEXTCLOUD_VERSIONS_RETENTION_OBLIGATION|default('auto, 40') }}"
+      - "NEXTCLOUD_MEMCACHE_LOCAL={{ NEXTCLOUD_MEMCACHE_LOCAL|default(omit) }}"
+      - "NEXTCLOUD_MEMCACHE_DISTRIBUTED={{ NEXTCLOUD_MEMCACHE_LOCAL|default(omit) }}"
+      - "NEXTCLOUD_REDIS_HOST={{ NEXTCLOUD_REDIS_HOST|default(omit) }}"
+      - "NEXTCLOUD_REDIS_PORT={{ NEXTCLOUD_REDIS_PORT|default(omit) }}"
+      - "NEXTCLOUD_REDIS_TIMEOUT={{ NEXTCLOUD_REDIS_TIMEOUT|default(omit) }}"
+      - "NEXTCLOUD_REDIS_PASSWORD={{ NEXTCLOUD_REDIS_PASSWORD|default(omit) }}"
+      - "NEXTCLOUD_REDIS_DBINDEX={{ NEXTCLOUD_REDIS_DBINDEX|default(omit) }}"
+      - "NEXTCLOUD_MEMCACHE_LOCKING_ENABLED={{ NEXTCLOUD_MEMCACHE_LOCKING_ENABLED|default(omit) }}"
+    {% if secrets is defined %}
+    secrets:
+    {% for secret in secrets %}
+      - source: {{ secret.source }}
+        target:  {{ secret.target }}
+        uid: '999'
+        gid: '0'
+        mode: 0400
+    {% endfor %}
+    {% endif %}
+    networks:
+      database:
+      redis:
+      reverse-proxy:
+        aliases:
+          - {{ deployment_name|default('nextcloud') }}.{{ stack_name }}.docker
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
+      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('nextcloud') }}/www:/container/www"
+      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('nextcloud') }}/cfg/nginx:/etc/nginx/conf.d"
+    {% if extra_volumes is defined %}
+    {% for ev in extra_volumes %}
+      - "{{ ev.source }}:{{ ev.target }}{{ ':ro' if ev.read_only|default(false) else '' }}"
+    {% endfor %}
+    {% endif %}
+    deploy:
+      labels:
+        - com.df.notify=true
+        - com.df.serviceDomain={{ domainnames }}
+        - com.df.reqMode=http
+        - com.df.httpsOnly=true
+        - com.df.port=8080
+        - com.df.httpsPort=8080
+        - com.df.connectionMode=http-server-close
+        - com.df.checkResolvers=true
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: "{{ memory|default('1000MB') }}"
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+networks:
+  reverse-proxy:
+    external: true
+    name: {{ stack_name }}_reverse-proxy
+  database:
+    external: true
+    name: {{ stack_name }}_mariadb
+  redis:
+    external: true
+    name: {{ stack_name }}_redis
+
+{% if secrets is defined %}
+secrets:
+{% for secret in secrets %}
+  {{ secret.source }}:
+    external: true true
+{% endfor %}
+{% endif %}

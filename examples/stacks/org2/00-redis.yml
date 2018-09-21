@@ -1,0 +1,38 @@
+version: '3.7'
+
+services:
+  redis:
+    image: aisberg/redis:4.0.11
+    environment:
+      - REDIS_DATABASES=3
+      - REDIS_REQUIREPASS=YwrbSwFEzEu2iG0rwEpi
+      - REDIS_MAXCLIENTS=500
+      - REDIS_MAXMEMORY=300mb
+    networks:
+      redis:
+        aliases:
+          - redis
+          - redis.org2.docker
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /srv/org2/redis/redis:/container/redis
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 300mb
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+networks:
+  redis:
+    name: org2_redis
+    driver: overlay
+    attachable: true
+

@@ -1,0 +1,33 @@
+---
+
+include_vars:
+  - vars-global.yml
+vars:
+  stack_name: org1
+
+templates:
+  - src: templates/redis.yml.j2
+    dest: stacks/{{ stack_name }}/00-{{ deployment_name }}.yml
+    vars:
+      deployment_name: redis
+      REDIS_DATABASES: 3
+      REDIS_MAXCLIENTS: 500
+      REDIS_MAXMEMORY: "300mb"
+      REDIS_REQUIREPASS: lnFl4MzarOL5bTEbreld
+
+  - src: templates/nextcloud.yml.j2
+    dest: stacks/{{ stack_name }}/10-{{ deployment_name }}.yml
+    vars:
+      deployment_name: nextcloud
+      domainnames: "cloud.org1.de"
+      NGINX_REDIRECT_TO_FIRST_DOMAIN: true
+      NEXTCLOUD_DATABASE_HOST: mariadb.global.docker
+      NEXTCLOUD_DATABASE_NAME: org1_01
+      NEXTCLOUD_DATABASE_USER: org1_01
+      NEXTCLOUD_MEMCACHE_LOCKING_ENABLED: true
+      NEXTCLOUD_MEMCACHE_DISTRIBUTED: Redis
+      NEXTCLOUD_REDIS_HOST: "redis.{{ stack_name }}.docker"
+      NEXTCLOUD_REDIS_PORT: 6379
+      NEXTCLOUD_REDIS_DBINDEX: 0
+      NEXTCLOUD_REDIS_PASSWORD: lnFl4MzarOL5bTEbreld
+      NEXTCLOUD_DATABASE_PASSWORD: 7qvbCz7JcVS3OcSa9jE0

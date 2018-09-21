@@ -1,0 +1,128 @@
+version: '3.7'
+
+services:
+  reverse-proxy:
+    image: dockerflow/docker-flow-proxy:18.09.14-9-linux-amd64
+    environment:
+      # daemon config
+      - "LISTENER_ADDRESS=swarm-listener"
+      - "SERVICE_NAME=reverse-proxy"
+      - "RECONFIGURE_ATTEMPTS={{ RECONFIGURE_ATTEMPTS|default(20) }}"
+      - "RELOAD_ATTEMPTS={{ RELOAD_ATTEMPTS|default(5) }}"
+      - "RELOAD_INTERVAL={{ RELOAD_INTERVAL|default(5000) }}"
+      - "REPEAT_RELOAD={{ REPEAT_RELOAD|default('false') }}"
+
+      # haproxy config
+      - "STATS_USER={{ STATS_USER|default(omit) }}"
+      - "STATS_PASS={{ STATS_PASS|default(omit) }}"
+      - "STATS_PORT={{ STATS_PORT|default(omit) }}"
+      - "STATS_URI={{ STATS_URI|default(omit) }}"
+
+      - "HTTPS_ONLY={{ HTTPS_ONLY|default('true') }}"
+      - "SSL_BIND_CIPHERS={{ SSL_BIND_CIPHERS|default('ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:EECDH+AESGCM:EDH+AESGCM') }}"
+      - "SSL_BIND_OPTIONS={{ SSL_BIND_OPTIONS|default('ssl-min-ver TLSv1.2 no-tls-tickets') }}"
+      - "CONNECTION_MODE={{ CONNECTION_MODE|default('http-server-close') }}"
+      - "COMPRESSION_ALGO={{ COMPRESSION_ALGO|default('gzip') }}"
+      - "EXTRA_GLOBAL={{ EXTRA_GLOBAL|default(omit) }}"
+
+      - "DEFAULT_PORTS=80,443:ssl"
+      - "CA_FILE={{ DEFAULT_REQ_MODE|default(omit) }}"
+      - "DEFAULT_REQ_MODE={{ DEFAULT_REQ_MODE|default('http') }}"
+      - "ENABLE_H2={{ ENABLE_H2|default('true') }}"
+      - "SERVICE_DOMAIN_ALGO={{ SERVICE_DOMAIN_ALGO|default('hdr_dom(host)') }}"
+      - "TIMEOUT_CLIENT={{ TIMEOUT_CLIENT|default(600) }}"
+      - "TIMEOUT_CONNECT={{ TIMEOUT_CONNECT|default(5) }}"
+      - "TIMEOUT_QUEUE={{ TIMEOUT_QUEUE|default(60) }}"
+      - "TIMEOUT_SERVER={{ TIMEOUT_SERVER|default(3600) }}"
+      - "TIMEOUT_TUNNEL={{ TIMEOUT_TUNNEL|default(3600) }}"
+      - "TIMEOUT_HTTP_REQUEST={{ TIMEOUT_HTTP_REQUEST|default(5) }}"
+      - "TIMEOUT_HTTP_KEEP_ALIVE={{ TIMEOUT_HTTP_KEEP_ALIVE|default(30) }}"
+      - "EXTRA_FRONTEND={{ EXTRA_FRONTEND|default(omit) }}"
+
+      - "SKIP_ADDRESS_VALIDATION={{ SKIP_ADDRESS_VALIDATION|default('true') }}"
+      - "RESOLVERS={{ RESOLVERS|default('nameserver dns-0 9.9.9.9:53,nameserver dns-1 8.8.8.8:53') }}"
+      - "CHECK_RESOLVERS={{ CHECK_RESOLVERS|default('false') }}"
+      - "DO_NOT_RESOLVE_ADDR={{ DO_NOT_RESOLVE_ADDR|default('false') }}"
+
+      - "USERS={{ USERS|default(omit) }}"
+      - "USERS_PASS_ENCRYPTED={{ USERS_PASS_ENCRYPTED|default(omit) }}"
+    networks:
+      swarm-listener:
+        aliases:
+          - reverse-proxy
+          - reverse-proxy.docker
+          - reverse-proxy.{{ stack_name }}.docker
+    {% for network in stacks|default([]) %}
+      {{ network }}_reverse-proxy:
+    {% endfor %}
+    ports:
+      - 80:80
+      - 443:443
+    {% if secrets is defined %}
+    secrets:
+    {% for secret in secrets %}
+      - source: {{ secret.source }}
+        target:  {{ secret.target }}
+        uid: '0'
+        gid: '0'
+        mode: 0400
+    {% endfor %}
+    {% endif %}
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
+      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('haproxy') }}/certs:/certs"
+    deploy:
+      labels:
+        - com.df.notify=true
+        - com.df.alertName=memlimit
+        - com.df.alertIf=@service_mem_limit:0.8
+        - com.df.alertFor=30s
+      mode: global
+      update_config:
+        parallelism: 1
+        delay: 10s
+      resources:
+        reservations:
+          memory: 20M
+        limits:
+          memory: 50M
+
+  swarm-listener:
+    image: dockerflow/docker-flow-swarm-listener:18.09.06-6-linux-amd64
+    networks:
+      - swarm-listener
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    environment:
+      - DF_NOTIFY_CREATE_SERVICE_URL=http://reverse-proxy.docker:8080/v1/docker-flow-proxy/reconfigure
+      - DF_NOTIFY_REMOVE_SERVICE_URL=http://reverse-proxy.docker:8080/v1/docker-flow-proxy/remove
+    deploy:
+      mode: global
+      labels:
+        - com.df.notify=true
+        - com.df.distribute=true
+        - com.df.alertName=memlimit
+        - com.df.alertIf=@service_mem_limit:0.8
+        - com.df.alertFor=30s
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+        delay: 3s
+      resources:
+        reservations:
+          memory: 10M
+        limits:
+          memory: 20M
+
+networks:
+  swarm-listener:
+    driver: overlay
+    attachable: false
+{% for network in stacks|default([]) %}
+  {{ network }}_reverse-proxy:
+    name: {{ network }}_reverse-proxy
+    driver: overlay
+    attachable: true
+{% endfor %}

@@ -1,0 +1,113 @@
+version: '3.7'
+
+services:
+  reverse-proxy:
+    image: dockerflow/docker-flow-proxy:18.09.14-9-linux-amd64
+    environment:
+      # daemon config
+      - LISTENER_ADDRESS=swarm-listener
+      - SERVICE_NAME=reverse-proxy
+      - RECONFIGURE_ATTEMPTS=20
+      - RELOAD_ATTEMPTS=5
+      - RELOAD_INTERVAL=5000
+      - REPEAT_RELOAD=false
+
+      - HTTPS_ONLY=true
+      - SSL_BIND_CIPHERS=ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:EECDH+AESGCM:EDH+AESGCM
+      - SSL_BIND_OPTIONS=ssl-min-ver TLSv1.0 no-tls-tickets
+      - CONNECTION_MODE=http-server-close
+      - COMPRESSION_ALGO=gzip
+      - EXTRA_GLOBAL=crt-base /certs
+
+      - DEFAULT_PORTS=80,443:ssl
+      - DEFAULT_REQ_MODE=http
+      - ENABLE_H2=true
+      - SERVICE_DOMAIN_ALGO=hdr_dom(host)
+      - TIMEOUT_CLIENT=600
+      - TIMEOUT_CONNECT=5
+      - TIMEOUT_QUEUE=60
+      - TIMEOUT_SERVER=3600
+      - TIMEOUT_TUNNEL=3600
+      - TIMEOUT_HTTP_REQUEST=5
+      - TIMEOUT_HTTP_KEEP_ALIVE=30
+
+      - SKIP_ADDRESS_VALIDATION=true
+      - RESOLVERS=nameserver dns-0 9.9.9.9:53,nameserver dns-1 8.8.8.8:53
+      - CHECK_RESOLVERS=false
+      - DO_NOT_RESOLVE_ADDR=false
+    networks:
+      swarm-listener:
+        aliases:
+          - reverse-proxy
+          - reverse-proxy.docker
+          - reverse-proxy.global.docker
+      global_reverse-proxy:
+      org1_reverse-proxy:
+      org2_reverse-proxy:
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /srv/global/reverse-proxy/certs:/certs
+    deploy:
+      labels:
+        - com.df.notify=true
+        - com.df.alertName=memlimit
+        - com.df.alertIf=@service_mem_limit:0.8
+        - com.df.alertFor=30s
+      mode: global
+      update_config:
+        parallelism: 1
+        delay: 10s
+      resources:
+        reservations:
+          memory: 20M
+        limits:
+          memory: 50M
+
+  swarm-listener:
+    image: dockerflow/docker-flow-swarm-listener:18.09.06-6-linux-amd64
+    networks:
+      - swarm-listener
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - DF_NOTIFY_CREATE_SERVICE_URL=http://reverse-proxy.docker:8080/v1/docker-flow-proxy/reconfigure
+      - DF_NOTIFY_REMOVE_SERVICE_URL=http://reverse-proxy.docker:8080/v1/docker-flow-proxy/remove
+    deploy:
+      mode: global
+      labels:
+        - com.df.notify=true
+        - com.df.distribute=true
+        - com.df.alertName=memlimit
+        - com.df.alertIf=@service_mem_limit:0.8
+        - com.df.alertFor=30s
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+        delay: 3s
+      resources:
+        reservations:
+          memory: 10M
+        limits:
+          memory: 20M
+
+networks:
+  swarm-listener:
+    driver: overlay
+    attachable: false
+  global_reverse-proxy:
+    name: global_reverse-proxy
+    driver: overlay
+    attachable: true
+  org1_reverse-proxy:
+    name: org1_reverse-proxy
+    driver: overlay
+    attachable: true
+  org2_reverse-proxy:
+    name: org2_reverse-proxy
+    driver: overlay
+    attachable: true

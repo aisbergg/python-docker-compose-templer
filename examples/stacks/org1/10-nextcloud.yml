@@ -1,0 +1,75 @@
+version: '3.7'
+
+services:
+  nextcloud:
+    image: aisberg/nextcloud:14.0.0
+    environment:
+      - DOMAINNAMES=cloud.org1.de
+      - MAX_UPLOAD_FILESIZE=16384M
+      - NGINX_BEHIND_PROXY=True
+      - NGINX_TLS_TERMINATED=True
+      - NGINX_REWRITE_HTTPS=True
+      - NGINX_REDIRECT_TO_FIRST_DOMAIN=True
+      - NGINX_FASTCGI_READ_TIMEOUT=3600
+      - PHP_MAX_EXECUTION_TIME=3600
+      - PHP_MAX_INPUT_TIME=3600
+
+      - AUTO_UPDATE=True
+      - NEXTCLOUD_DEFAULT_LANGUAGE=de_DE
+      - NEXTCLOUD_DEFAULT_LOCALE=de_DE
+      - NEXTCLOUD_DATABASE_TYPE=mysql
+      - NEXTCLOUD_DATABASE_HOST=mariadb.global.docker
+      - NEXTCLOUD_DATABASE_NAME=org1_01
+      - NEXTCLOUD_DATABASE_USER=org1_01
+      - NEXTCLOUD_DATABASE_PASSWORD=7qvbCz7JcVS3OcSa9jE0
+      - NEXTCLOUD_TRASHBIN_RETENTION_OBLIGATION=auto, 20
+      - NEXTCLOUD_VERSIONS_RETENTION_OBLIGATION=auto, 40
+      - NEXTCLOUD_REDIS_HOST=redis.org1.docker
+      - NEXTCLOUD_REDIS_PORT=6379
+      - NEXTCLOUD_REDIS_PASSWORD=lnFl4MzarOL5bTEbreld
+      - NEXTCLOUD_REDIS_DBINDEX=0
+      - NEXTCLOUD_MEMCACHE_LOCKING_ENABLED=True
+    networks:
+      database:
+      redis:
+      reverse-proxy:
+        aliases:
+          - nextcloud.org1.docker
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /srv/org1/nextcloud/www:/container/www
+      - /srv/org1/nextcloud/cfg/nginx:/etc/nginx/conf.d
+    deploy:
+      labels:
+        - com.df.notify=true
+        - com.df.serviceDomain=cloud.org1.de
+        - com.df.reqMode=http
+        - com.df.httpsOnly=true
+        - com.df.port=8080
+        - com.df.httpsPort=8080
+        - com.df.connectionMode=http-server-close
+        - com.df.checkResolvers=true
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1000MB
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+networks:
+  reverse-proxy:
+    external: true
+    name: org1_reverse-proxy
+  database:
+    external: true
+    name: org1_mariadb
+  redis:
+    external: true
+    name: org1_redis
+
