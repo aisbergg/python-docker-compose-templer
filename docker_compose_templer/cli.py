@@ -691,6 +691,8 @@ class Definition(object):
 
         if 'templates' not in file_content:
             raise ValueError("Missing key 'templates' in template definition")
+        if type(file_content['templates']) is not list:
+            raise ValueError("Value of 'templates' must be of type list")
 
         global_options = self._parse_variable_options(file_content)
 
