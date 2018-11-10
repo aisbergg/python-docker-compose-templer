@@ -7,6 +7,7 @@ import traceback
 from ast import literal_eval
 from copy import deepcopy
 from distutils.util import strtobool
+from io import StringIO
 
 import jinja2
 import pyinotify
@@ -52,12 +53,12 @@ class Utils:
         return merged
 
     @staticmethod
-    def load_yaml(string, Loader=yaml.CSafeLoader):
+    def load_yaml(string, safe=True):
         """Parses a YAML string and produce the corresponding Python object.
 
         Args:
             string (str): The input string to be parsed
-            Loader (yaml.Loader): Loader to use for parsing
+            safe (bool): If True the CSafeLoader is used otherwise the RoundTripLoader
 
         Returns:
             dict: The parsed YAML
@@ -67,9 +68,40 @@ class Utils:
         """
         try:
             Log.debug("Parsing YAML...")
-            return yaml.load(string, Loader=Loader) or dict()
+            if safe:
+                yml = yaml.YAML(typ='safe')
+            else:
+                yml = yaml.YAML(typ='rt')
+            return yml.load(string) or dict()
         except yaml.YAMLError as e:
             raise yaml.YAMLError("YAML parsing error: {0}".format(e.problem))
+        except Exception:
+            raise
+
+    @staticmethod
+    def dump_yaml(data):
+        """Dumps a Python object as a YAML string.
+
+        Args:
+            data (dict): The data to be dumped as YAML
+
+        Returns:
+            str: The dumped YAML
+
+        Raises:
+            yaml.TypeError: If a YAML type error occurred
+        """
+        yml = yaml.YAML()
+        yml.explicit_start = True
+        yml.indent(mapping=2, sequence=4, offset=2)
+        yml.width = 1000
+        try:
+            Log.debug("Dumping YAML...")
+            sio = StringIO()
+            yml.dump(data, sio)
+            return sio.getvalue()
+        except yaml.TypeError as e:
+            raise yaml.TypeError("YAML dump error: {0}".format(e.problem))
         except Exception:
             raise
 
@@ -885,16 +917,8 @@ class Template(object):
             rendered_file_content = JinjaRenderer.render_string(file_content, self.context.get_context())
 
             # remove values containing an omit placeholder
-            processed_content = yaml.dump(
-                JinjaRenderer.remove_omit_from_dict(
-                    Utils.load_yaml(rendered_file_content, Loader=yaml.RoundTripLoader)
-                ),
-                indent=2,
-                block_seq_indent=2,
-                allow_unicode=True,
-                default_flow_style=False,
-                Dumper=yaml.RoundTripDumper
-            )
+            processed_content = Utils.dump_yaml(JinjaRenderer.remove_omit_from_dict(
+                Utils.load_yaml(rendered_file_content, safe=False)))
 
             # write the rendered content into a file
             dest_path = self._create_path(self.dest)
