@@ -33,7 +33,7 @@ The documentation of Jinja2 can be found [here](http://jinja.pocoo.org/docs/dev/
 
 Install directly from Github:
 ```
-pip install git+https://github.com/Aisbergg/python-docker-compose-templer@v1.0.1
+pip install git+https://github.com/Aisbergg/python-docker-compose-templer@v1.0.2
 ```
 
 Install from PyPi:

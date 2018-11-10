@@ -992,7 +992,7 @@ def cli():
                         help="Show this help message and exit")
     parser.add_argument('-v', '--verbose', dest='verbose', action='count',
                         default=0, help="Enable verbose mode")
-    parser.add_argument('--version', action='version', version='Templer {0}, Jinja2 {1}'.format(
+    parser.add_argument('--version', action='version', version='Docker Compose Templer {0}, Jinja2 {1}'.format(
         __version__, jinja2.__version__), help="Print the program version and quit")
     parser.add_argument('definition_file', nargs='+',
                         help="File that defines what to do.")
