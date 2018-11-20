@@ -1,9 +1,11 @@
+---
 version: '3.7'
 
 services:
   redis:
-    image: aisberg/redis:4.0.11
+    image: aisberg/redis:latest
     environment:
+      - SUPERVISOR_HTTP_SERVER=inet
       - REDIS_DATABASES=3
       - REDIS_REQUIREPASS=YwrbSwFEzEu2iG0rwEpi
       - REDIS_MAXCLIENTS=500
@@ -16,7 +18,11 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /srv/org2/redis/redis:/container/redis
+      - /srv/org2/redis/log:/container/log
     deploy:
+      labels:
+        - bindMountOwner=999:0
+        - updateService=true
       mode: global
       restart_policy:
         condition: on-failure

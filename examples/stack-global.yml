@@ -8,7 +8,7 @@ vars:
     - global
     - org1
     - org2
-
+  
 templates:
   - src: templates/reverse-proxy.yml.j2
     dest: stacks/{{ stack_name }}/00-reverse-proxy.yml

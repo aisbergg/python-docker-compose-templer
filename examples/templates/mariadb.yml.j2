@@ -2,7 +2,8 @@ version: '3.7'
 
 services:
   {{ deployment_name|default('mariadb') }}:
-    image: bitnami/mariadb:10.2.17
+    # https://hub.docker.com/r/bitnami/mariadb/
+    image: bitnami/mariadb:10.2.18
     environment:
       - "MARIADB_PORT_NUMBER=3306"
       - "MARIADB_ROOT_PASSWORD={{ MYSQL_ROOT_PASSWORD|mandatory('MYSQL_ROOT_PASSWORD must be defined') }}"
@@ -12,16 +13,17 @@ services:
       {{ network }}_mariadb:
         aliases:
           - mariadb
-          - mariadb.{{ network }}.docker
+          - mariadb.{{ stack_name }}.docker
           - mysql
-          - mysql.{{ network }}.docker
+          - mysql.{{ stack_name }}.docker
     {% endfor %}
     user: "999"
     volumes:
       - "/etc/localtime:/etc/localtime:ro"
       - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('mariadb') }}:/bitnami/mariadb"
-      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('mariadb') }}/my_custom.cnf:/bitnami/mariadb/my_custom.cnf"
     deploy:
+      labels:
+        - "bindMountOwner=999:0"
       mode: global
       placement:
         constraints: [node.platform.os == linux]

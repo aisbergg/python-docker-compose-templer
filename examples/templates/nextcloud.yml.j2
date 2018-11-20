@@ -2,9 +2,10 @@ version: '3.7'
 
 services:
   {{ deployment_name|default('nextcloud') }}:
-    image: aisberg/nextcloud:14.0.0
+    image: aisberg/nextcloud:14.0.3
     environment:
       - "DOMAINNAMES={{ domainnames|default(omit) }}"
+      - "SUPERVISOR_HTTP_SERVER=inet"
 
       - "NGINX_WORKER_PROCESSES={{ NGINX_WORKER_PROCESSES|default(omit) }}"
       - "NGINX_WORKER_CONNECTIONS={{ NGINX_WORKER_CONNECTIONS|default(omit) }}"
@@ -13,7 +14,7 @@ services:
       - "MAX_UPLOAD_FILESIZE={{ MAX_UPLOAD_FILESIZE|default('16384M') }}"
       - "NGINX_BEHIND_PROXY=True"
       - "NGINX_TLS_TERMINATED=True"
-      - "NGINX_REWRITE_HTTPS=True"
+      - "NGINX_REWRITE_HTTPS=False" # HAProxy will do the rewrite to HTTPS
       - "NGINX_REDIRECT_TO_FIRST_DOMAIN={{ NGINX_REDIRECT_TO_FIRST_DOMAIN|default(False) }}"
       - "NGINX_FASTCGI_READ_TIMEOUT={{ NGINX_FASTCGI_READ_TIMEOUT|default(3600) }}"
 
@@ -43,6 +44,7 @@ services:
       - "NEXTCLOUD_REDIS_PASSWORD={{ NEXTCLOUD_REDIS_PASSWORD|default(omit) }}"
       - "NEXTCLOUD_REDIS_DBINDEX={{ NEXTCLOUD_REDIS_DBINDEX|default(omit) }}"
       - "NEXTCLOUD_MEMCACHE_LOCKING_ENABLED={{ NEXTCLOUD_MEMCACHE_LOCKING_ENABLED|default(omit) }}"
+      {# - "NEXTCLOUD_DBDRIVEROPTIONS=PDO=YSQL_ATTR_INIT_COMMAND => 'SET wait_timeout = 28800'" #}
     {% if secrets is defined %}
     secrets:
     {% for secret in secrets %}
@@ -63,6 +65,7 @@ services:
       - "/etc/localtime:/etc/localtime:ro"
       - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('nextcloud') }}/www:/container/www"
       - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('nextcloud') }}/cfg/nginx:/etc/nginx/conf.d"
+      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('nextcloud') }}/log:/container/log"
     {% if extra_volumes is defined %}
     {% for ev in extra_volumes %}
       - "{{ ev.source }}:{{ ev.target }}{{ ':ro' if ev.read_only|default(false) else '' }}"
@@ -70,14 +73,17 @@ services:
     {% endif %}
     deploy:
       labels:
-        - com.df.notify=true
-        - com.df.serviceDomain={{ domainnames }}
-        - com.df.reqMode=http
-        - com.df.httpsOnly=true
-        - com.df.port=8080
-        - com.df.httpsPort=8080
-        - com.df.connectionMode=http-server-close
-        - com.df.checkResolvers=true
+        - "bindMountOwner=999:0"
+        - "com.df.notify=true"
+        - "com.df.serviceDomain={{ domainnames }}"
+        - "com.df.reqMode=http"
+        - "com.df.httpsOnly=true"
+        - "com.df.port=8080"
+        - "com.df.httpsPort=8080"
+        - "com.df.connectionMode=http-server-close"
+        - "com.df.checkResolvers=true"
+        - "com.df.letsencrypt.host={{ domainnames }}"
+        - "com.df.letsencrypt.email={{ letsencrypt_email }}"
       mode: global
       restart_policy:
         condition: on-failure
@@ -106,6 +112,6 @@ networks:
 secrets:
 {% for secret in secrets %}
   {{ secret.source }}:
-    external: true true
+    external: true
 {% endfor %}
 {% endif %}

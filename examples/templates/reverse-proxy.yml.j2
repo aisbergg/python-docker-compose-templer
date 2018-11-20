@@ -2,7 +2,7 @@ version: '3.7'
 
 services:
   reverse-proxy:
-    image: dockerflow/docker-flow-proxy:18.09.14-9-linux-amd64
+    image: dockerflow/docker-flow-proxy:18.11.07-15-linux-amd64
     environment:
       # daemon config
       - "LISTENER_ADDRESS=swarm-listener"
@@ -29,7 +29,7 @@ services:
       - "CA_FILE={{ DEFAULT_REQ_MODE|default(omit) }}"
       - "DEFAULT_REQ_MODE={{ DEFAULT_REQ_MODE|default('http') }}"
       - "ENABLE_H2={{ ENABLE_H2|default('true') }}"
-      - "SERVICE_DOMAIN_ALGO={{ SERVICE_DOMAIN_ALGO|default('hdr_dom(host)') }}"
+      - "SERVICE_DOMAIN_ALGO={{ SERVICE_DOMAIN_ALGO|default('hdr(host)') }}"
       - "TIMEOUT_CLIENT={{ TIMEOUT_CLIENT|default(600) }}"
       - "TIMEOUT_CONNECT={{ TIMEOUT_CONNECT|default(5) }}"
       - "TIMEOUT_QUEUE={{ TIMEOUT_QUEUE|default(60) }}"
@@ -56,8 +56,17 @@ services:
       {{ network }}_reverse-proxy:
     {% endfor %}
     ports:
-      - 80:80
-      - 443:443
+      # Ports must be exposed in 'host' mode instead of 'ingress', otherwise the
+      # incoming requests IP will be lost. For more information see:
+      # https://github.com/moby/moby/issues/25526
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: host
     {% if secrets is defined %}
     secrets:
     {% for secret in secrets %}
@@ -73,10 +82,11 @@ services:
       - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('haproxy') }}/certs:/certs"
     deploy:
       labels:
-        - com.df.notify=true
-        - com.df.alertName=memlimit
-        - com.df.alertIf=@service_mem_limit:0.8
-        - com.df.alertFor=30s
+        - "bindMountOwner=0:0"
+        - "com.df.notify=true"
+        - "com.df.alertName=memlimit"
+        - "com.df.alertIf=@service_mem_limit:0.8"
+        - "com.df.alertFor=30s"
       mode: global
       update_config:
         parallelism: 1
@@ -86,25 +96,33 @@ services:
           memory: 20M
         limits:
           memory: 50M
+    #-----------------
+    # for debugging
+    # entrypoint: /bin/sh
+    # command: []
+    # healthcheck:
+    #   disable: true
+    # tty: true
+    #----------------
 
   swarm-listener:
-    image: dockerflow/docker-flow-swarm-listener:18.09.06-6-linux-amd64
+    image: dockerflow/docker-flow-swarm-listener:18.11.07-18-linux-amd64
     networks:
       - swarm-listener
     volumes:
       - "/etc/localtime:/etc/localtime:ro"
       - "/var/run/docker.sock:/var/run/docker.sock"
     environment:
-      - DF_NOTIFY_CREATE_SERVICE_URL=http://reverse-proxy.docker:8080/v1/docker-flow-proxy/reconfigure
-      - DF_NOTIFY_REMOVE_SERVICE_URL=http://reverse-proxy.docker:8080/v1/docker-flow-proxy/remove
+      - "DF_NOTIFY_CREATE_SERVICE_URL=http://{{ 'letsencrypt' if letsencrypt_enabled else 'reverse-proxy' }}.docker:8080/v1/docker-flow-proxy/reconfigure"
+      - "DF_NOTIFY_REMOVE_SERVICE_URL=http://reverse-proxy.docker:8080/v1/docker-flow-proxy/remove"
     deploy:
       mode: global
       labels:
-        - com.df.notify=true
-        - com.df.distribute=true
-        - com.df.alertName=memlimit
-        - com.df.alertIf=@service_mem_limit:0.8
-        - com.df.alertFor=30s
+        - "com.df.notify=true"
+        - "com.df.distribute=true"
+        - "com.df.alertName=memlimit"
+        - "com.df.alertIf=@service_mem_limit:0.8"
+        - "com.df.alertFor=30s"
       placement:
         constraints: [node.role == manager]
       restart_policy:
@@ -116,6 +134,46 @@ services:
         limits:
           memory: 20M
 
+{% if letsencrypt_enabled %}
+  letsencrypt:
+    # https://github.com/techmunk/docker-flow-proxy-letsencrypt
+    image: techmunk/docker-flow-proxy-letsencrypt:latest
+    environment:
+      # - "DF_PROXY_SERVICE_NAME=reverse-proxy"
+      - "DF_SWARM_LISTENER_SERVICE_ENDPOINT=reverse-proxy:8080"
+      - "DF_SWARM_LISTENER_SERVICE_NAME=swarm-listener"
+      - "CERTBOT_OPTIONS=--rsa-key-size 4096 {{ letsencrypt_extra_flags|default('') }}"
+      - "CERTBOT_CHALLENGE=http"
+      - "LETSENCRYPT_RENEWAL_CRON=30 2 * * *"
+      - "LOG=info"
+      - "RETRY=10"
+      - "RETRY_INTERVAL=5"
+    networks:
+      swarm-listener:
+        aliases:
+          - letsencrypt
+          - letsencrypt.docker
+          - letsencrypt.{{ stack_name }}.docker
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
+      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('haproxy') }}/letsencrypt:/etc/letsencrypt"
+    deploy:
+      labels:
+        - "bindMountOwner=0:0"
+        - "updateService=true"
+        - "com.df.notify=true"
+        - "com.df.distribute=true"
+        - "com.df.servicePath=/.well-known/acme-challenge"
+        - "com.df.port=8080"
+      mode: global
+      update_config:
+        parallelism: 1
+        delay: 10s
+      resources:
+        limits:
+          memory: 120M
+{% endif %}
+
 networks:
   swarm-listener:
     driver: overlay
@@ -126,3 +184,12 @@ networks:
     driver: overlay
     attachable: true
 {% endfor %}
+
+{% if secrets is defined %}
+secrets:
+{% for secret in secrets %}
+  {{ secret.source }}:
+    external: true
+{% endfor %}
+{% endif %}
+

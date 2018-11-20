@@ -1,14 +1,16 @@
+---
 version: '3.7'
 
 services:
   nextcloud:
-    image: aisberg/nextcloud:14.0.0
+    image: aisberg/nextcloud:14.0.3
     environment:
       - DOMAINNAMES=cloud.org1.de
+      - SUPERVISOR_HTTP_SERVER=inet
       - MAX_UPLOAD_FILESIZE=16384M
       - NGINX_BEHIND_PROXY=True
       - NGINX_TLS_TERMINATED=True
-      - NGINX_REWRITE_HTTPS=True
+      - NGINX_REWRITE_HTTPS=False   # HAProxy will do the rewrite to HTTPS
       - NGINX_REDIRECT_TO_FIRST_DOMAIN=True
       - NGINX_FASTCGI_READ_TIMEOUT=3600
       - PHP_MAX_EXECUTION_TIME=3600
@@ -39,8 +41,10 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /srv/org1/nextcloud/www:/container/www
       - /srv/org1/nextcloud/cfg/nginx:/etc/nginx/conf.d
+      - /srv/org1/nextcloud/log:/container/log
     deploy:
       labels:
+        - bindMountOwner=999:0
         - com.df.notify=true
         - com.df.serviceDomain=cloud.org1.de
         - com.df.reqMode=http
@@ -49,6 +53,8 @@ services:
         - com.df.httpsPort=8080
         - com.df.connectionMode=http-server-close
         - com.df.checkResolvers=true
+        - com.df.letsencrypt.host=cloud.org1.de
+        - com.df.letsencrypt.email=root@example.org
       mode: global
       restart_policy:
         condition: on-failure
