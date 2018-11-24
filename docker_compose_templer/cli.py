@@ -92,7 +92,6 @@ class Utils:
             yaml.TypeError: If a YAML type error occurred
         """
         yml = yaml.YAML()
-        yml.explicit_start = True
         yml.indent(mapping=2, sequence=4, offset=2)
         yml.width = 1000
         try:

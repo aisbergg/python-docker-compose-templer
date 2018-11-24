@@ -1,4 +1,3 @@
----
 version: '3.7'
 
 services:
@@ -50,13 +49,13 @@ services:
       # incoming requests IP will be lost. For more information see:
       # https://github.com/moby/moby/issues/25526
       - target: 80
-        published: 80
-        protocol: tcp
-        mode: host
+      published: 80
+      protocol: tcp
+      mode: host
       - target: 443
-        published: 443
-        protocol: tcp
-        mode: host
+      published: 443
+      protocol: tcp
+      mode: host
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /srv/global/reverse-proxy/certs:/certs
