@@ -91,7 +91,7 @@ def regex_contains(value, pattern, ignorecase=False, multiline=False):
 
 def to_bool(string, default_value=None):
     """Convert a string representation of a boolean value to an actual bool"""
-    return bool(strtobool(string).strip())
+    return bool(strtobool(string.strip()))
 
 
 def to_yaml(value, indent=2, *args, **kw):
