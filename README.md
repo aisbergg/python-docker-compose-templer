@@ -125,7 +125,7 @@ Because of the omit functionality the renderer only renders YAML files, generic 
 
 ### Examples
 
-Examples can be found in the [`examples`](examples) directory. There are three stacks defined, one global stack and two user stacks. The user stacks define a _Nextloud_ and _Redis_ service. Both stacks depend on the global one, meaning those share a global _MariaDB_ and a reverse proxy. To run this example execute the following command inside the `examples/` directory: `docker_compose_templer -f stack-global.yml stack-user1.yml stack-user2.yml`
+Examples can be found in the [`examples`](examples) directory. There are three stacks defined, one global stack and two user stacks. The user stacks define a _Nextloud_ and _Redis_ service. Both stacks depend on the global one, meaning those share a global _MariaDB_ and a reverse proxy. To run this example execute the following command inside the `examples/` directory: `docker-compose-templer -f stack-global.yml stack-user1.yml stack-user2.yml`
 
 ## Extra Jinja2 Filters
 
