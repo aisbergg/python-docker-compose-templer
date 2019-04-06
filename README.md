@@ -83,12 +83,6 @@ include_vars:
   - path/to/file_1.yml
   - path/to/file_2.yml
 
-# (optional) Command to execute before any template of this definition file is rendered
-pre_render: "echo 'Now processing definition file {file}'"
-
-# (optional) Command to execute after all templates were successfully rendered
-post_render: "echo 'Successfully processed definition file {file}'"
-
 # template definitions
 templates:
   # first template
@@ -97,8 +91,6 @@ templates:
     include_vars: variables/s1.yml    # (optional) include local variables from YAML file(s)
     vars:                             # (optional) local variables for this template
       some_local_var: abc
-    pre_render: "echo 'Now creating {dest} from {src}...'"       # (optional) Command to execute before rendering this template
-    post_render: "echo 'Successfully created {dest} from {src}'" # (optional) Command to execute after rendering this template
 
   # second template
   - src: templates/my_template.yml.j2
