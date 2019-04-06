@@ -1,60 +1,31 @@
+{% set development = development|default(false) %}
+{% set deployment_name = deployment_name|default('reverse-proxy') %}
+
 version: '3.7'
 
 services:
-  reverse-proxy:
-    image: dockerflow/docker-flow-proxy:18.11.07-15-linux-amd64
-    environment:
-      # daemon config
-      - "LISTENER_ADDRESS=swarm-listener"
-      - "SERVICE_NAME=reverse-proxy"
-      - "RECONFIGURE_ATTEMPTS={{ RECONFIGURE_ATTEMPTS|default(20) }}"
-      - "RELOAD_ATTEMPTS={{ RELOAD_ATTEMPTS|default(5) }}"
-      - "RELOAD_INTERVAL={{ RELOAD_INTERVAL|default(5000) }}"
-      - "REPEAT_RELOAD={{ REPEAT_RELOAD|default('false') }}"
-
-      # haproxy config
-      - "STATS_USER={{ STATS_USER|default(omit) }}"
-      - "STATS_PASS={{ STATS_PASS|default(omit) }}"
-      - "STATS_PORT={{ STATS_PORT|default(omit) }}"
-      - "STATS_URI={{ STATS_URI|default(omit) }}"
-
-      - "HTTPS_ONLY={{ HTTPS_ONLY|default('true') }}"
-      - "SSL_BIND_CIPHERS={{ SSL_BIND_CIPHERS|default('ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:EECDH+AESGCM:EDH+AESGCM') }}"
-      - "SSL_BIND_OPTIONS={{ SSL_BIND_OPTIONS|default('ssl-min-ver TLSv1.2 no-tls-tickets') }}"
-      - "CONNECTION_MODE={{ CONNECTION_MODE|default('http-server-close') }}"
-      - "COMPRESSION_ALGO={{ COMPRESSION_ALGO|default('gzip') }}"
-      - "EXTRA_GLOBAL={{ EXTRA_GLOBAL|default(omit) }}"
-
-      - "DEFAULT_PORTS=80,443:ssl"
-      - "CA_FILE={{ DEFAULT_REQ_MODE|default(omit) }}"
-      - "DEFAULT_REQ_MODE={{ DEFAULT_REQ_MODE|default('http') }}"
-      - "ENABLE_H2={{ ENABLE_H2|default('true') }}"
-      - "SERVICE_DOMAIN_ALGO={{ SERVICE_DOMAIN_ALGO|default('hdr(host)') }}"
-      - "TIMEOUT_CLIENT={{ TIMEOUT_CLIENT|default(600) }}"
-      - "TIMEOUT_CONNECT={{ TIMEOUT_CONNECT|default(5) }}"
-      - "TIMEOUT_QUEUE={{ TIMEOUT_QUEUE|default(60) }}"
-      - "TIMEOUT_SERVER={{ TIMEOUT_SERVER|default(3600) }}"
-      - "TIMEOUT_TUNNEL={{ TIMEOUT_TUNNEL|default(3600) }}"
-      - "TIMEOUT_HTTP_REQUEST={{ TIMEOUT_HTTP_REQUEST|default(5) }}"
-      - "TIMEOUT_HTTP_KEEP_ALIVE={{ TIMEOUT_HTTP_KEEP_ALIVE|default(30) }}"
-      - "EXTRA_FRONTEND={{ EXTRA_FRONTEND|default(omit) }}"
-
-      - "SKIP_ADDRESS_VALIDATION={{ SKIP_ADDRESS_VALIDATION|default('true') }}"
-      - "RESOLVERS={{ RESOLVERS|default('nameserver dns-0 9.9.9.9:53,nameserver dns-1 8.8.8.8:53') }}"
-      - "CHECK_RESOLVERS={{ CHECK_RESOLVERS|default('false') }}"
-      - "DO_NOT_RESOLVE_ADDR={{ DO_NOT_RESOLVE_ADDR|default('false') }}"
-
-      - "USERS={{ USERS|default(omit) }}"
-      - "USERS_PASS_ENCRYPTED={{ USERS_PASS_ENCRYPTED|default(omit) }}"
+  {{ deployment_name }}:
+    image: traefik:1.7.9
+    command: --configfile='/container/traefik.toml'
+    healthcheck:
+      test: ["CMD", "/traefik", "healthcheck", "--configfile=/container/traefik.toml"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     networks:
-      swarm-listener:
+    {% for network in stacks|default([]) %}
+      {{ network }}_reverse-proxy:
         aliases:
           - reverse-proxy
           - reverse-proxy.docker
           - reverse-proxy.{{ stack_name }}.docker
-    {% for network in stacks|default([]) %}
-      {{ network }}_reverse-proxy:
     {% endfor %}
+    {% if not development|default(false) %}
+    expose:
+      # traefik dashboard
+      - "8000"
+    {% endif %}
     ports:
       # Ports must be exposed in 'host' mode instead of 'ingress', otherwise the
       # incoming requests IP will be lost. For more information see:
@@ -67,129 +38,82 @@ services:
         published: 443
         protocol: tcp
         mode: host
-    {% if secrets is defined %}
-    secrets:
-    {% for secret in secrets %}
-      - source: {{ secret.source }}
-        target:  {{ secret.target }}
-        uid: '0'
-        gid: '0'
-        mode: 0400
-    {% endfor %}
-    {% endif %}
+      {% if development|default(false) %}
+      - target: 8000
+        published: 8000
+        protocol: tcp
+        mode: host
+      {% endif %}
     volumes:
       - "/etc/localtime:/etc/localtime:ro"
-      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('haproxy') }}/certs:/certs"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "{{ base_volume_dir|mandatory }}/{{ stack_name }}/{{ deployment_name }}:/container"
     deploy:
       labels:
         - "bindMountOwner=0:0"
-        - "com.df.notify=true"
-        - "com.df.alertName=memlimit"
-        - "com.df.alertIf=@service_mem_limit:0.8"
-        - "com.df.alertFor=30s"
-      mode: global
-      update_config:
-        parallelism: 1
-        delay: 10s
-      resources:
-        reservations:
-          memory: 20M
-        limits:
-          memory: 50M
-    #-----------------
-    # for debugging
-    # entrypoint: /bin/sh
-    # command: []
-    # healthcheck:
-    #   disable: true
-    # tty: true
-    #----------------
-
-  swarm-listener:
-    image: dockerflow/docker-flow-swarm-listener:18.11.07-18-linux-amd64
-    networks:
-      - swarm-listener
-    volumes:
-      - "/etc/localtime:/etc/localtime:ro"
-      - "/var/run/docker.sock:/var/run/docker.sock"
-    environment:
-      - "DF_NOTIFY_CREATE_SERVICE_URL=http://{{ 'letsencrypt' if letsencrypt_enabled else 'reverse-proxy' }}.docker:8080/v1/docker-flow-proxy/reconfigure"
-      - "DF_NOTIFY_REMOVE_SERVICE_URL=http://reverse-proxy.docker:8080/v1/docker-flow-proxy/remove"
-    deploy:
-      mode: global
-      labels:
-        - "com.df.notify=true"
-        - "com.df.distribute=true"
-        - "com.df.alertName=memlimit"
-        - "com.df.alertIf=@service_mem_limit:0.8"
-        - "com.df.alertFor=30s"
       placement:
         constraints: [node.role == manager]
-      restart_policy:
-        condition: on-failure
-        delay: 3s
-      resources:
-        reservations:
-          memory: 10M
-        limits:
-          memory: 20M
-
-{% if letsencrypt_enabled %}
-  letsencrypt:
-    # https://github.com/techmunk/docker-flow-proxy-letsencrypt
-    image: techmunk/docker-flow-proxy-letsencrypt:latest
-    environment:
-      # - "DF_PROXY_SERVICE_NAME=reverse-proxy"
-      - "DF_SWARM_LISTENER_SERVICE_ENDPOINT=reverse-proxy:8080"
-      - "DF_SWARM_LISTENER_SERVICE_NAME=swarm-listener"
-      - "CERTBOT_OPTIONS=--rsa-key-size 4096 {{ letsencrypt_extra_flags|default('') }}"
-      - "CERTBOT_CHALLENGE=http"
-      - "LETSENCRYPT_RENEWAL_CRON=30 2 * * *"
-      - "LOG=info"
-      - "RETRY=10"
-      - "RETRY_INTERVAL=5"
-    networks:
-      swarm-listener:
-        aliases:
-          - letsencrypt
-          - letsencrypt.docker
-          - letsencrypt.{{ stack_name }}.docker
-    volumes:
-      - "/etc/localtime:/etc/localtime:ro"
-      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('haproxy') }}/letsencrypt:/etc/letsencrypt"
-    deploy:
-      labels:
-        - "bindMountOwner=0:0"
-        - "updateService=true"
-        - "com.df.notify=true"
-        - "com.df.distribute=true"
-        - "com.df.servicePath=/.well-known/acme-challenge"
-        - "com.df.port=8080"
       mode: global
       update_config:
         parallelism: 1
         delay: 10s
       resources:
+        reservations:
+          memory: 60M
         limits:
-          memory: 120M
-{% endif %}
+          memory: "{{ memory|default('400MB') }}"
+
+  error-pages:
+    image: nginx:1.15-alpine
+    command: "nginx -g 'daemon off;' -c /container/nginx.conf"
+    networks:
+      {{ stack_name }}_reverse-proxy:
+        aliases:
+          - error-pages.{{ stack_name }}.docker
+    expose:
+      - "8080"
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
+      - "{{ base_volume_dir|mandatory }}/{{ stack_name }}/{{ deployment_name }}/error-pages:/container"
+    deploy:
+      labels:
+        - "bindMountOwner=100:101"
+        - "bindMountMode=0770"
+        - "updateService=true"
+        - "traefik.enable=true"
+        - "traefik.docker.network={{ stack_name }}_reverse-proxy"
+        - "traefik.frontend.rule=HostRegexp:{catchall:.*};ReplacePath: /raise-503-error"
+        - "traefik.frontend.priority=1"
+        - "traefik.port=8080"
+        - "traefik.weight=10"
+        - "traefik.backend=error"
+        - "traefik.backend.loadbalancer.method=drr"
+        - "traefik.backend.loadbalancer.stickiness=false"
+        - "traefik.backend.loadbalancer.swarm=true"
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: "{{ memory|default('20MB') }}"
+      update_config:
+        parallelism: 1
+        delay: 10s
 
 networks:
-  swarm-listener:
-    driver: overlay
-    attachable: false
 {% for network in stacks|default([]) %}
   {{ network }}_reverse-proxy:
     name: {{ network }}_reverse-proxy
     driver: overlay
     attachable: true
+    {% if network == stack_name %}
+    # use explicit subnet
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.10.10.0/24
+    {% endif %}
 {% endfor %}
-
-{% if secrets is defined %}
-secrets:
-{% for secret in secrets %}
-  {{ secret.source }}:
-    external: true
-{% endfor %}
-{% endif %}
-

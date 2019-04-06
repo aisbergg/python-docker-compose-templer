@@ -1,8 +1,11 @@
+{% set development = development|default(false) %}
+{% set deployment_name = deployment_name|default('nextcloud') %}
+
 version: '3.7'
 
 services:
-  {{ deployment_name|default('nextcloud') }}:
-    image: aisberg/nextcloud:14.0.3
+  {{ deployment_name }}:
+    image: aisberg/nextcloud:{{ 'latest' if development else '15.0.5' }}
     environment:
       - "DOMAINNAMES={{ domainnames|default(omit) }}"
       - "SUPERVISOR_HTTP_SERVER=inet"
@@ -14,7 +17,7 @@ services:
       - "MAX_UPLOAD_FILESIZE={{ MAX_UPLOAD_FILESIZE|default('16384M') }}"
       - "NGINX_BEHIND_PROXY=True"
       - "NGINX_TLS_TERMINATED=True"
-      - "NGINX_REWRITE_HTTPS=False" # HAProxy will do the rewrite to HTTPS
+      - "NGINX_REWRITE_HTTPS=False"
       - "NGINX_REDIRECT_TO_FIRST_DOMAIN={{ NGINX_REDIRECT_TO_FIRST_DOMAIN|default(False) }}"
       - "NGINX_FASTCGI_READ_TIMEOUT={{ NGINX_FASTCGI_READ_TIMEOUT|default(3600) }}"
 
@@ -60,12 +63,12 @@ services:
       redis:
       reverse-proxy:
         aliases:
-          - {{ deployment_name|default('nextcloud') }}.{{ stack_name }}.docker
+          - {{ deployment_name }}.{{ stack_name }}.docker
     volumes:
       - "/etc/localtime:/etc/localtime:ro"
-      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('nextcloud') }}/www:/container/www"
-      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('nextcloud') }}/cfg/nginx:/etc/nginx/conf.d"
-      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('nextcloud') }}/log:/container/log"
+      - "{{ base_volume_dir|mandatory }}/{{ stack_name }}/{{ deployment_name }}/www:/container/www"
+      - "{{ base_volume_dir|mandatory }}/{{ stack_name }}/{{ deployment_name }}/cfg/nginx:/etc/nginx/conf.d"
+      - "{{ base_volume_dir|mandatory }}/{{ stack_name }}/{{ deployment_name }}/log:/container/log"
     {% if extra_volumes is defined %}
     {% for ev in extra_volumes %}
       - "{{ ev.source }}:{{ ev.target }}{{ ':ro' if ev.read_only|default(false) else '' }}"
@@ -73,17 +76,24 @@ services:
     {% endif %}
     deploy:
       labels:
-        - "bindMountOwner=999:0"
-        - "com.df.notify=true"
-        - "com.df.serviceDomain={{ domainnames }}"
-        - "com.df.reqMode=http"
-        - "com.df.httpsOnly=true"
-        - "com.df.port=8080"
-        - "com.df.httpsPort=8080"
-        - "com.df.connectionMode=http-server-close"
-        - "com.df.checkResolvers=true"
-        - "com.df.letsencrypt.host={{ domainnames }}"
-        - "com.df.letsencrypt.email={{ letsencrypt_email }}"
+        - "traefik.enable=true"
+        - "traefik.docker.network={{ stack_name }}_reverse-proxy"
+        - "traefik.port=8080"
+        - "traefik.weight=10"
+        - "traefik.frontend.auth.basic.users={{ basic_auth|join(',')|replace('$','$$') if basic_auth is defined else omit }}"
+        - "traefik.frontend.auth.basic.removeHeader={{ 'true' if basic_auth is defined else omit }}"
+        - "traefik.frontend.headers.STSIncludeSubdomains=true"
+        - "traefik.frontend.headers.STSPreload=true"
+        - "traefik.frontend.headers.STSSeconds=315360000"
+        - "traefik.frontend.passHostHeader=true"
+        - "traefik.frontend.redirect.entryPoint=https"
+        - "traefik.frontend.redirect.permanent=true"
+        - "traefik.frontend.rule=Host:{{ domainnames }}"
+        - "traefik.frontend.whiteList.sourceRange={{ allowed_src|default(omit) }}"
+        - "traefik.backend.loadbalancer.method=drr"
+        - "traefik.backend.loadbalancer.stickiness.cookieName=traefik_{{ stack_name }}_{{ deployment_name }}"
+        - "traefik.backend.loadbalancer.stickiness={{ treafik_stickiness|default(True)|lower }}"
+        - "traefik.backend.loadbalancer.swarm=true"
       mode: global
       restart_policy:
         condition: on-failure

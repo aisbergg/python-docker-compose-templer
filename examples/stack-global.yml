@@ -6,20 +6,18 @@ vars:
   stack_name: global
   stacks:
     - global
-    - org1
-    - org2
+    - user1
+    - user2
   
 templates:
-  - src: templates/reverse-proxy.yml.j2
-    dest: stacks/{{ stack_name }}/00-reverse-proxy.yml
-    vars:
-      deployment_name: reverse-proxy
-      SSL_BIND_CIPHERS: ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:EECDH+AESGCM:EDH+AESGCM
-      SSL_BIND_OPTIONS: ssl-min-ver TLSv1.0 no-tls-tickets
-      EXTRA_GLOBAL: "crt-base /certs"
+  # - src: templates/reverse-proxy.yml.j2
+  #   dest: stacks/{{ stack_name }}/00-reverse-proxy.yml
+  #   vars:
+  #     deployment_name: reverse-proxy
 
   - src: templates/mariadb.yml.j2
     dest: stacks/{{ stack_name }}/00-mariadb.yml
     vars:
       deployment_name: mariadb
       MYSQL_ROOT_PASSWORD: crPWnQpQppiI1B8H0OKU
+    

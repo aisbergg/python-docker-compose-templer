@@ -3,7 +3,7 @@ version: '3.7'
 services:
   mariadb:
     # https://hub.docker.com/r/bitnami/mariadb/
-    image: bitnami/mariadb:10.2.18
+    image: bitnami/mariadb:10.2.21
     environment:
       - MARIADB_PORT_NUMBER=3306
       - MARIADB_ROOT_PASSWORD=crPWnQpQppiI1B8H0OKU
@@ -15,13 +15,13 @@ services:
           - mariadb.global.docker
           - mysql
           - mysql.global.docker
-      org1_mariadb:
+      user1_mariadb:
         aliases:
           - mariadb
           - mariadb.global.docker
           - mysql
           - mysql.global.docker
-      org2_mariadb:
+      user2_mariadb:
         aliases:
           - mariadb
           - mariadb.global.docker
@@ -32,8 +32,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /srv/global/mariadb:/bitnami/mariadb
     deploy:
-      labels:
-        - bindMountOwner=999:0
       mode: global
       placement:
         constraints: [node.platform.os == linux]
@@ -53,11 +51,11 @@ networks:
     name: global_mariadb
     driver: overlay
     attachable: true
-  org1_mariadb:
-    name: org1_mariadb
+  user1_mariadb:
+    name: user1_mariadb
     driver: overlay
     attachable: true
-  org2_mariadb:
-    name: org2_mariadb
+  user2_mariadb:
+    name: user2_mariadb
     driver: overlay
     attachable: true

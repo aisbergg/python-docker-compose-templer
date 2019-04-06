@@ -2,14 +2,14 @@ version: '3.7'
 
 services:
   nextcloud:
-    image: aisberg/nextcloud:14.0.3
+    image: aisberg/nextcloud:15.0.5
     environment:
-      - DOMAINNAMES=cloud.org1.de
+      - DOMAINNAMES=cloud.user1.de
       - SUPERVISOR_HTTP_SERVER=inet
       - MAX_UPLOAD_FILESIZE=16384M
       - NGINX_BEHIND_PROXY=True
       - NGINX_TLS_TERMINATED=True
-      - NGINX_REWRITE_HTTPS=False   # HAProxy will do the rewrite to HTTPS
+      - NGINX_REWRITE_HTTPS=False
       - NGINX_REDIRECT_TO_FIRST_DOMAIN=True
       - NGINX_FASTCGI_READ_TIMEOUT=3600
       - PHP_MAX_EXECUTION_TIME=3600
@@ -20,12 +20,12 @@ services:
       - NEXTCLOUD_DEFAULT_LOCALE=de_DE
       - NEXTCLOUD_DATABASE_TYPE=mysql
       - NEXTCLOUD_DATABASE_HOST=mariadb.global.docker
-      - NEXTCLOUD_DATABASE_NAME=org1_01
-      - NEXTCLOUD_DATABASE_USER=org1_01
+      - NEXTCLOUD_DATABASE_NAME=user1_01
+      - NEXTCLOUD_DATABASE_USER=user1_01
       - NEXTCLOUD_DATABASE_PASSWORD=7qvbCz7JcVS3OcSa9jE0
       - NEXTCLOUD_TRASHBIN_RETENTION_OBLIGATION=auto, 20
       - NEXTCLOUD_VERSIONS_RETENTION_OBLIGATION=auto, 40
-      - NEXTCLOUD_REDIS_HOST=redis.org1.docker
+      - NEXTCLOUD_REDIS_HOST=redis.user1.docker
       - NEXTCLOUD_REDIS_PORT=6379
       - NEXTCLOUD_REDIS_PASSWORD=lnFl4MzarOL5bTEbreld
       - NEXTCLOUD_REDIS_DBINDEX=0
@@ -35,25 +35,29 @@ services:
       redis:
       reverse-proxy:
         aliases:
-          - nextcloud.org1.docker
+          - nextcloud.user1.docker
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - /srv/org1/nextcloud/www:/container/www
-      - /srv/org1/nextcloud/cfg/nginx:/etc/nginx/conf.d
-      - /srv/org1/nextcloud/log:/container/log
+      - /srv/user1/nextcloud/www:/container/www
+      - /srv/user1/nextcloud/cfg/nginx:/etc/nginx/conf.d
+      - /srv/user1/nextcloud/log:/container/log
     deploy:
       labels:
-        - bindMountOwner=999:0
-        - com.df.notify=true
-        - com.df.serviceDomain=cloud.org1.de
-        - com.df.reqMode=http
-        - com.df.httpsOnly=true
-        - com.df.port=8080
-        - com.df.httpsPort=8080
-        - com.df.connectionMode=http-server-close
-        - com.df.checkResolvers=true
-        - com.df.letsencrypt.host=cloud.org1.de
-        - com.df.letsencrypt.email=root@example.org
+        - traefik.enable=true
+        - traefik.docker.network=user1_reverse-proxy
+        - traefik.port=8080
+        - traefik.weight=10
+        - traefik.frontend.headers.STSIncludeSubdomains=true
+        - traefik.frontend.headers.STSPreload=true
+        - traefik.frontend.headers.STSSeconds=315360000
+        - traefik.frontend.passHostHeader=true
+        - traefik.frontend.redirect.entryPoint=https
+        - traefik.frontend.redirect.permanent=true
+        - traefik.frontend.rule=Host:cloud.user1.de
+        - traefik.backend.loadbalancer.method=drr
+        - traefik.backend.loadbalancer.stickiness.cookieName=traefik_user1_nextcloud
+        - traefik.backend.loadbalancer.stickiness=true
+        - traefik.backend.loadbalancer.swarm=true
       mode: global
       restart_policy:
         condition: on-failure
@@ -70,11 +74,11 @@ services:
 networks:
   reverse-proxy:
     external: true
-    name: org1_reverse-proxy
+    name: user1_reverse-proxy
   database:
     external: true
-    name: org1_mariadb
+    name: user1_mariadb
   redis:
     external: true
-    name: org1_redis
+    name: user1_redis
 

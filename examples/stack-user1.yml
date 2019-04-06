@@ -3,7 +3,7 @@
 include_vars:
   - vars-global.yml
 vars:
-  stack_name: org1
+  stack_name: user1
 
 templates:
   - src: templates/redis.yml.j2
@@ -19,11 +19,11 @@ templates:
     dest: stacks/{{ stack_name }}/10-{{ deployment_name }}.yml
     vars:
       deployment_name: nextcloud
-      domainnames: "cloud.org1.de"
+      domainnames: "cloud.user1.de"
       NGINX_REDIRECT_TO_FIRST_DOMAIN: true
       NEXTCLOUD_DATABASE_HOST: mariadb.global.docker
-      NEXTCLOUD_DATABASE_NAME: org1_01
-      NEXTCLOUD_DATABASE_USER: org1_01
+      NEXTCLOUD_DATABASE_NAME: user1_01
+      NEXTCLOUD_DATABASE_USER: user1_01
       NEXTCLOUD_MEMCACHE_LOCKING_ENABLED: true
       NEXTCLOUD_MEMCACHE_DISTRIBUTED: Redis
       NEXTCLOUD_REDIS_HOST: "redis.{{ stack_name }}.docker"

@@ -1,7 +1,10 @@
+{% set development = development|default(false) %}
+{% set deployment_name = deployment_name|default('redis') %}
+
 version: '3.7'
 
 services:
-  {{ deployment_name|default('redis') }}:
+  {{ deployment_name }}:
     image: aisberg/redis:latest
     environment:
       - "SUPERVISOR_HTTP_SERVER=inet"
@@ -25,15 +28,12 @@ services:
       redis:
         aliases:
           - redis
-          - {{ deployment_name|default('redis') }}.{{ stack_name }}.docker
+          - {{ deployment_name }}.{{ stack_name }}.docker
     volumes:
       - "/etc/localtime:/etc/localtime:ro"
-      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('redis') }}/redis:/container/redis"
-      - "{{ base_dir|mandatory }}/{{ stack_name }}/{{ deployment_name|default('redis') }}/log:/container/log"
+      - "{{ base_volume_dir|mandatory }}/{{ stack_name }}/{{ deployment_name }}/redis:/container/redis"
+      - "{{ base_volume_dir|mandatory }}/{{ stack_name }}/{{ deployment_name }}/log:/container/log"
     deploy:
-      labels:
-        - "bindMountOwner=999:0"
-        - "updateService=true"
       mode: global
       restart_policy:
         condition: on-failure
@@ -49,7 +49,7 @@ services:
 
 networks:
   redis:
-    name: {{ stack_name }}_{{ deployment_name|default('redis') }}
+    name: {{ stack_name }}_{{ deployment_name }}
     driver: overlay
     attachable: true
 

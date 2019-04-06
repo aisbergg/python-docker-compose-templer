@@ -42,20 +42,20 @@ services:
           - reverse-proxy.docker
           - reverse-proxy.global.docker
       global_reverse-proxy:
-      org1_reverse-proxy:
-      org2_reverse-proxy:
+      user1_reverse-proxy:
+      user2_reverse-proxy:
     ports:
       # Ports must be exposed in 'host' mode instead of 'ingress', otherwise the
       # incoming requests IP will be lost. For more information see:
       # https://github.com/moby/moby/issues/25526
       - target: 80
-      published: 80
-      protocol: tcp
-      mode: host
+        published: 80
+        protocol: tcp
+        mode: host
       - target: 443
-      published: 443
-      protocol: tcp
-      mode: host
+        published: 443
+        protocol: tcp
+        mode: host
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /srv/global/reverse-proxy/certs:/certs
@@ -159,12 +159,12 @@ networks:
     name: global_reverse-proxy
     driver: overlay
     attachable: true
-  org1_reverse-proxy:
-    name: org1_reverse-proxy
+  user1_reverse-proxy:
+    name: user1_reverse-proxy
     driver: overlay
     attachable: true
-  org2_reverse-proxy:
-    name: org2_reverse-proxy
+  user2_reverse-proxy:
+    name: user2_reverse-proxy
     driver: overlay
     attachable: true
 

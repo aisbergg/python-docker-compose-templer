@@ -6,22 +6,19 @@ services:
     environment:
       - SUPERVISOR_HTTP_SERVER=inet
       - REDIS_DATABASES=3
-      - REDIS_REQUIREPASS=YwrbSwFEzEu2iG0rwEpi
+      - REDIS_REQUIREPASS=lnFl4MzarOL5bTEbreld
       - REDIS_MAXCLIENTS=500
       - REDIS_MAXMEMORY=300mb
     networks:
       redis:
         aliases:
           - redis
-          - redis.org2.docker
+          - redis.user1.docker
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - /srv/org2/redis/redis:/container/redis
-      - /srv/org2/redis/log:/container/log
+      - /srv/user1/redis/redis:/container/redis
+      - /srv/user1/redis/log:/container/log
     deploy:
-      labels:
-        - bindMountOwner=999:0
-        - updateService=true
       mode: global
       restart_policy:
         condition: on-failure
@@ -37,7 +34,7 @@ services:
 
 networks:
   redis:
-    name: org2_redis
+    name: user1_redis
     driver: overlay
     attachable: true
 

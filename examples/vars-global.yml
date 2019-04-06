@@ -1,5 +1,3 @@
 ---
 
-base_dir: /srv
-letsencrypt_enabled: true
-letsencrypt_email: root@example.org
+base_volume_dir: /srv
