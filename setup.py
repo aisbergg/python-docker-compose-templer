@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 from os import path
 
@@ -10,7 +9,7 @@ with open(path.join(path.abspath(path.dirname(__file__)), 'README.md')) as f:
 
 setup(
     name='Docker Compose Templer',
-    version='1.0.2',
+    version='1.1.0',
     author='Andre Lehmann',
     author_email='aisberg@posteo.de',
     url='https://github.com/Aisbergg/python-docker-compose-templer',
@@ -35,16 +34,16 @@ setup(
         'Source': 'https://github.com/Aisbergg/python-docker-compose-templer',
     },
     packages=find_packages(exclude=['examples', 'tests']),
-    entry_points={
-        'console_scripts': [
-            'docker_compose_templer = docker_compose_templer:cli',
-        ]
-    },
+    scripts=[
+        'bin/docker-compose-templer'
+    ],
     install_requires=[
         'jinja2',
-        'pyinotify',
-        'ruamel.yaml',
+        'ruamel.yaml'
     ],
+    extras_require={
+        'AutoRenderer': ["pyinotify"],
+    },
     include_package_data=True,
     zip_safe=False,
     platforms=['POSIX'],

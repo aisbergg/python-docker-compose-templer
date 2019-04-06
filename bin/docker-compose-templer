@@ -1,0 +1,76 @@
+#!/usr/bin/env python
+
+import argparse
+import sys
+
+from jinja2 import __version__ as jinja_version
+
+from docker_compose_templer import __version__ as docker_compose_templer_version
+from docker_compose_templer.definition import Definition
+from docker_compose_templer.log import Log
+
+# raise error when running with Python2
+if not sys.version_info[:2] >= (3, 0):
+    raise SystemExit('ERROR: Templer requires a Python3 runtime! Your current Python version is: %s' % ''.join(
+        sys.version.splitlines()))
+
+if __name__ == '__main__':
+    # parse arguments
+    parser = argparse.ArgumentParser(
+        prog='docker-compose-templer',
+        description='Render Docker Compose file templates with the power of Jinja2',
+        add_help=False)
+    parser.add_argument('-a', '--auto-render', dest='auto_render',
+                        action='store_true', default=False,
+                        help="Monitor file changes and render templates automatically")
+    parser.add_argument('-f', '--force', dest='force_overwrite',
+                        action='store_true', default=False, help="Overwrite existing files")
+    parser.add_argument("-h", "--help", action="help",
+                        help="Show this help message and exit")
+    parser.add_argument('-v', '--verbose', dest='verbose', action='count',
+                        default=0, help="Enable verbose mode")
+    parser.add_argument('--version', action='version', version='Docker Compose Templer {0}, Jinja2 {1}'.format(
+        docker_compose_templer_version, jinja_version), help="Print the program version and quit")
+    parser.add_argument('definition_file', nargs='+',
+                        help="File that defines what to do.")
+    args = parser.parse_args(sys.argv[1:])
+
+    # initialize dumb logger
+    levels = [Log.ERROR, Log.INFO, Log.DEBUG]
+    Log.level = levels[min(len(levels) - 1, args.verbose + 1)]
+
+    if args.auto_render:
+        try:
+            import pyinotify
+        except ImportError:
+            Log.error("In order to use the auto render functionality the package 'pyinotify' needs to be installed")
+            exit(1)
+
+    definitions = [
+        Definition(
+            path=path,
+            force_overwrite=args.force_overwrite,
+            watch_changes=args.auto_render
+        ) for path in args.definition_file
+    ]
+    for d in definitions:
+        if not d.file.exists():
+            Log.error("Definition file does not exist: '{0}'".format(d.file.path))
+            exit(1)
+
+    if args.auto_render:
+        from docker_compose_templer.auto_renderer import AutoRenderer
+
+        ar = AutoRenderer(definitions)
+        ar.start()
+
+    else:
+        some_renders_failed = False
+        # process definition files
+        for df in definitions:
+            if not df.process():
+                some_renders_failed = True
+
+        if some_renders_failed:
+            Log.error("\nSome renders failed")
+            exit(1)

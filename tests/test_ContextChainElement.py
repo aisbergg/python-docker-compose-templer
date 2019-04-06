@@ -1,5 +1,5 @@
 from unittest import TestCase
-from docker_compose_templer.cli import ContextChainElement
+from docker_compose_templer.context import ContextChainElement
 
 
 class TestContextChainElement(TestCase):

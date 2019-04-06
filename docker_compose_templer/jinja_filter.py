@@ -15,7 +15,8 @@ class MandatoryError(UndefinedError):
 def mandatory(value, error_message=u''):
     """Raise an 'UndefinedError' with an custom error massage, when value is undefined"""
     if type(value) is StrictUndefined:
-        raise MandatoryError(str(error_message))
+        error_message = str(error_message) or "The variable '{0}' is undefined".format(value._undefined_name)
+        raise MandatoryError(error_message)
 
     return value
 
@@ -90,8 +91,23 @@ def regex_contains(value, pattern, ignorecase=False, multiline=False):
 
 
 def to_bool(string, default_value=None):
-    """Convert a string representation of a boolean value to an actual bool"""
-    return bool(strtobool(string.strip()))
+    """Convert a string representation of a boolean value to an actual bool
+
+    Args:
+        string (str): A string to be converted to bool
+        default_value: Default value when 'string' is not an boolean value
+
+    Returns:
+        bool: Converted string
+
+    """
+    try:
+        return bool(strtobool(string.strip()))
+    except ValueError:
+        if default_value is not None:
+            return default_value
+        else:
+            raise ValueError("'{0}' is not a boolean value".format(string.strip()))
 
 
 def to_yaml(value, indent=2, *args, **kw):

@@ -2,7 +2,7 @@ from unittest import TestCase
 
 import jinja2
 
-from docker_compose_templer.cli import JinjaRenderer
+from docker_compose_templer.template import JinjaRenderer
 
 
 class TestJinjaRenderer(TestCase):
@@ -67,6 +67,16 @@ class TestJinjaRenderer(TestCase):
         )
         self.assertEqual(
             JinjaRenderer.render_string("{{ 'foobar'|regex_contains('barfoo') }}", {}),
+            'False'
+        )
+
+        # filter: to_bool
+        self.assertEqual(
+            JinjaRenderer.render_string("{{ 'yes'|to_bool() }}", {}),
+            'True'
+        )
+        self.assertEqual(
+            JinjaRenderer.render_string("{{ 'xyz'|to_bool(default_value=False) }}", {}),
             'False'
         )
 

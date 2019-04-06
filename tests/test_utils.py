@@ -2,7 +2,7 @@ from unittest import TestCase
 
 from _ruamel_yaml import YAMLError
 
-from docker_compose_templer.cli import Utils
+from docker_compose_templer.template import Utils
 
 class TestUtils(TestCase):
     def test_merge_dicts(self):

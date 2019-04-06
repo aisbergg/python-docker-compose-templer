@@ -1,15 +1,16 @@
 from unittest import TestCase
-from docker_compose_templer.cli import File
+
+from docker_compose_templer.template import CachedFile
 
 
 class TestFile(TestCase):
     def test_exists(self):
-        self.assertTrue(File('./vars/vars1.yml').exists())
-        self.assertFalse(File('./foo').exists())
+        self.assertTrue(CachedFile('./vars/vars1.yml').exists())
+        self.assertFalse(CachedFile('./foo').exists())
 
     def test_read(self):
         fp = './files/read.txt'
-        f = File(fp)
+        f = CachedFile(fp)
         fcontent = 'foobar'
         self.assertEqual(f.read(), fcontent)
         self.assertEqual(f.cache['content'], fcontent)
@@ -18,15 +19,15 @@ class TestFile(TestCase):
         self.assertEqual(f.read(), fcontent)
 
         # file does not exist
-        self.assertRaises(FileNotFoundError, File('./foo').read)
+        self.assertRaises(FileNotFoundError, CachedFile('./foo').read)
         # not a file
-        self.assertRaises(IOError, File('./vars').read)
+        self.assertRaises(IOError, CachedFile('./vars').read)
 
     def test_write(self):
         # path is not a file
-        self.assertRaises(OSError, File.write, '', './vars', False)
+        self.assertRaises(OSError, CachedFile.write, '', './vars', False)
         # file already exists
-        self.assertRaises(OSError, File.write, '', './files/read.txt', False)
+        self.assertRaises(OSError, CachedFile.write, '', './files/read.txt', False)
 
         # write
         fp = './files/write.txt'
@@ -35,7 +36,7 @@ class TestFile(TestCase):
             os.remove(fp)
 
         write_content = 'foo'
-        File.write(write_content, fp, False)
+        CachedFile.write(write_content, fp, False)
         with open(fp, 'r') as f:
             self.assertEqual(f.read(), write_content)
 
