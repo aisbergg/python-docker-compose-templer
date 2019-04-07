@@ -10,10 +10,10 @@ vars:
     - user2
   
 templates:
-  # - src: templates/reverse-proxy.yml.j2
-  #   dest: stacks/{{ stack_name }}/00-reverse-proxy.yml
-  #   vars:
-  #     deployment_name: reverse-proxy
+  - src: templates/reverse-proxy.yml.j2
+    dest: stacks/{{ stack_name }}/00-reverse-proxy.yml
+    vars:
+      deployment_name: reverse-proxy
 
   - src: templates/mariadb.yml.j2
     dest: stacks/{{ stack_name }}/00-mariadb.yml
